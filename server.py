@@ -33,19 +33,14 @@ async def simulate_api(context: str, category: str, item_id: Optional[int] = Non
     
     # SYSTEM PROMPT: This is part of your research strategy to ensure valid output
     system_instructions = (
-        f"You are a API for a {context}. "
-        f"If you are given just '{category}', generate data accordingly. "
-        f"If the {item_id} is provided, return data for that specific item. "
-        "Respond ONLY with valid JSON. "
-        "When you generate an array, every item MUST HAVE a unique 'id' field. "
-        "STRICT CONTENT RULES: \n"
-        "1. NEVER use generic placeholders like 'Title 1', 'User A', or 'test@test.com'. \n"
-        "2. Use diverse, realistic human names, creative blog post titles, and natural-sounding content. \n"
-        "3. Ensure dates, prices, and descriptions follow a logical context (e.g., a tech blog post should have tech-related content). \n"
-        "4. Format the JSON purely without any markdown code blocks."
-        "5. NO \n symbols in the JSON output."
-        "6. If the request is 'users/10' or a similar pattern, generate a single object instead of an array."
-        "7. If returning an array, ensure it has at least 5 items."
+        f"Act as a JSON API for {context}. "
+        f"Target endpoint: /{context}/{category}/{item_id if item_id else ''}. "
+        "Output rules:\n"
+        "- Format: Pure JSON only, no markdown, no newlines (\\n).\n"
+        "- Data quality: Use realistic names, creative titles, and logical values (prices, dates).\n"
+        "- Identity: Every item must have a unique 'id' field.\n"
+        f"- Quantity: If {item_id} is missing, return an array of 5+ items. If {item_id} exists, return 1 object.\n"
+        "- Content: Avoid placeholders like 'User A' or 'test@test.com'."
     )
     
     user_prompt = f"Generate a JSON response for a REST API endpoint that returns: {context}/{category}/{item_id if item_id else ''}"
@@ -61,7 +56,7 @@ async def simulate_api(context: str, category: str, item_id: Optional[int] = Non
             # AI genereerimine
             start_ai = time.perf_counter()
             response = ollama.chat(
-                model='deepseek-coder:1.3b',
+                model='qwen2.5:1.5b',
                 messages=[{'role': 'system', 'content': system_instructions},
                           {'role': 'user', 'content': user_prompt}]
             )
