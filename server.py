@@ -61,7 +61,7 @@ async def simulate_api(context: str, category: str, item_id: Optional[int] = Non
             # AI genereerimine
             start_ai = time.perf_counter()
             response = ollama.chat(
-                model='llama3.2:1b',
+                model='granite-4:350m',
                 messages=[{'role': 'system', 'content': system_instructions},
                           {'role': 'user', 'content': user_prompt}]
             )
