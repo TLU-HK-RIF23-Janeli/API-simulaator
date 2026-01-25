@@ -27,6 +27,7 @@ async def simulate_api(context: str, category: str, item_id: Optional[int] = Non
         "4. Format the JSON purely without any markdown code blocks."
         "5. NO \n symbols in the JSON output."
         "6. If the request is 'users/10' or a similar pattern, generate a single object instead of an array."
+        "7. If returning an array, ensure it has at least 5 items."
     )
     
     user_prompt = f"Generate a JSON response for a REST API endpoint that returns: {context}/{category}/{item_id if item_id else ''}"
