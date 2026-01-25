@@ -1,9 +1,26 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 import ollama
 import json
 from typing import Optional
+import time
 
 app = FastAPI()
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    start_time = time.perf_counter() # Paneb stopperi käima
+    
+    response = await call_next(request) # Ootab, kuni AI vastuse genereerib
+    
+    process_time = time.perf_counter() - start_time # Arvutab kulunud aja
+    
+    # Prindib aja terminali (et sa näeksid seda kohe)
+    print(f"Päringu kestus: {process_time:.4f} sekundit")
+    
+    # Lisab aja ka vastuse päisesse (header), et klient (nt Axios) saaks seda näha
+    response.headers["X-Process-Time"] = str(process_time)
+    
+    return response
 
 @app.get("/api/{context}/{category}")
 @app.get("/api/{context}/{category}/{item_id}")
