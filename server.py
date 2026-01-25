@@ -29,6 +29,7 @@ async def simulate_api(context: str, category: str, item_id: Optional[int] = Non
     Endpoint to simulate a real API response using Llama 3.2.
     It takes a context, category, and item_id (e.g., 'users', 'posts', 10) and returns a JSON object.
     """
+    start_total_internal = time.perf_counter()
     
     # SYSTEM PROMPT: This is part of your research strategy to ensure valid output
     system_instructions = (
@@ -57,12 +58,17 @@ async def simulate_api(context: str, category: str, item_id: Optional[int] = Non
         print(f"--- KATSE {attempts} ---", flush=True)
         
         try:
+            # AI genereerimine
+            start_ai = time.perf_counter()
             response = ollama.chat(
                 model='llama3.2:1b',
                 messages=[{'role': 'system', 'content': system_instructions},
                           {'role': 'user', 'content': user_prompt}]
             )
-            
+            ai_duration = time.perf_counter() - start_ai
+
+            # Järeltöötlus ja JSON-i parsimine
+            start_parse = time.perf_counter()
             raw_content = response['message']['content'].strip()
             
             # Siin on see "puhastamise" koht, millest rääkisime
@@ -73,9 +79,14 @@ async def simulate_api(context: str, category: str, item_id: Optional[int] = Non
 
             # Proovime parsimist
             json_data = json.loads(raw_content)
+            parse_duration = time.perf_counter() - start_parse
             
             # KUI ÕNNESTUB: Trükime logisse ja tagastame andmed
             print(f"ÕNNESTUS katsel {attempts}!", flush=True)
+            print(f"AI genereerimise aeg: {ai_duration:.4f} sekundit", flush=True)
+            print(f"JSON parsimise aeg: {parse_duration:.4f} sekundit", flush=True)
+            total_duration = time.perf_counter() - start_total_internal
+            print(f"Kogu päringu töötlemise aeg: {total_duration:.4f} sekundit", flush=True)
             return json_data
             
         except (json.JSONDecodeError, Exception) as e:
