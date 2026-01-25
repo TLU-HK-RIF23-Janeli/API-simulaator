@@ -34,7 +34,7 @@ async def simulate_api(context: str, category: str, item_id: Optional[int] = Non
     # SYSTEM PROMPT: This is part of your research strategy to ensure valid output
     system_instructions = (
         f"You are a API for a {context}. "
-        f"If you are given just '{category}', generate data accordingly. "
+        f"If you are given just '{category}', generate at least 5 different items. "
         f"If the {item_id} is provided, return data for that specific item. "
         "Respond ONLY with valid JSON. "
         "When you generate an array, every item MUST HAVE a unique 'id' field. "
@@ -45,7 +45,6 @@ async def simulate_api(context: str, category: str, item_id: Optional[int] = Non
         "4. Format the JSON purely without any markdown code blocks."
         "5. NO \n symbols in the JSON output."
         "6. If the request is 'users/10' or a similar pattern, generate a single object instead of an array."
-        "7. If returning an array, ensure it has at least 5 items."
     )
     
     user_prompt = f"Generate a JSON response for a REST API endpoint that returns: {context}/{category}/{item_id if item_id else ''}"
@@ -61,7 +60,7 @@ async def simulate_api(context: str, category: str, item_id: Optional[int] = Non
             # AI genereerimine
             start_ai = time.perf_counter()
             response = ollama.chat(
-                model='llama3.2:1b',
+                model='qwen2.5:0.5b',
                 messages=[{'role': 'system', 'content': system_instructions},
                           {'role': 'user', 'content': user_prompt}]
             )
