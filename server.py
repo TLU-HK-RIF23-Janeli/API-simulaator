@@ -87,5 +87,9 @@ async def simulate_api(context: str, category: str, item_id: Optional[int] = Non
 
 if __name__ == "__main__":
     import uvicorn
+    print("\n" + "="*50)
+    print("RAKENDUS ON VALMIS!")
+    print("Testi siit: http://localhost:8000/api/blog/posts")
+    print("="*50 + "\n")
     # Starting the server on localhost:8000
     uvicorn.run(app, host="0.0.0.0", port=8000)
