@@ -10,7 +10,7 @@ Süsteem suudab genereerida realistlikke JSON-vastuseid vastavalt etteantud kont
 
 ## Enne rakenduse kasutamist
 - **Installi arvutisse Ollama**
-- Installi Python
+- Installi Python (13.4.2)
 - Veendu, et mõlemad oleksid lisatud süsteemi otsinguteele (PATH), et võimaldada käskude `pip`, `python` ja `ollama` kasutamist käsureal
 
 ## Seadistamine
