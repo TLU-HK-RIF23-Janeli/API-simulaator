@@ -155,23 +155,31 @@ def save_structured_resource(path, data):
     print("Structured resource saved.")
 
 def get_resource_by_path(path):
-    """Reconstructs the JSON object from structured attribute rows with list support."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    query = '''
-        SELECT a.parent_path, a.value 
-        FROM attributes a
-        JOIN paths p ON a.resource_id = p.resource_id
-        WHERE p.path = ?
-    '''
-    cursor.execute(query, (path,))
+    # 1. ETAPP: Leiame ID (Paths tabel on ainult viit)
+    # Kasutame LIKE, et kui andmebaasis on "/comments/1001", 
+    # siis ta leiaks selle üles ka "/posts/101/comments/1001" alt.
+    cursor.execute("SELECT resource_id FROM paths WHERE path = ? OR path LIKE ?", (path, f"%{path}"))
+    res_row = cursor.fetchone()
+    
+    if not res_row:
+        conn.close()
+        return None
+    
+    res_id = res_row[0]
+
+    # 2. ETAPP: Sinu vana kood hakkab tööle!
+    # Me ei küsi enam tee järgi, vaid ID järgi. Nii on lollikindel.
+    cursor.execute("SELECT parent_path, value FROM attributes WHERE resource_id = ?", (res_id,))
     rows = cursor.fetchall()
     conn.close()
-    
+
     if not rows:
         return None
 
+    # --- SIIT ALGAB SINU ORIGINAALNE KOOD ---
     result = {}
     for full_path, value in rows:
         # Normalize paths like 'data[0].id' to 'data.0.id'
@@ -181,10 +189,8 @@ def get_resource_by_path(path):
         for i, part in enumerate(parts):
             is_last = (i == len(parts) - 1)
             
-            # If current part is a digit, we are dealing with a list index
             if part.isdigit():
                 idx = int(part)
-                # Ensure the list is long enough
                 while len(current) <= idx:
                     current.append(None)
                 
@@ -192,12 +198,10 @@ def get_resource_by_path(path):
                     current[idx] = value
                 else:
                     if current[idx] is None:
-                        # Peek at next part to see if it's another list or a dict
                         next_part = parts[i+1]
                         current[idx] = [] if next_part.isdigit() else {}
                     current = current[idx]
             else:
-                # Dealing with a dictionary key
                 if is_last:
                     current[part] = value
                 else:

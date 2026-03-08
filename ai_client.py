@@ -26,9 +26,10 @@ async def get_ai_content(path):
     start_time = time.time()
     print(f"\n[AI] Starting AI content generation for path: {path}")
     prompt = (
-        f"You are a REST API server. Generate a realistic JSON response for the path: {path}. "
-        "Include a '_schema' field listing 2-3 logical sub-resources (e.g., if path is /car, "
-        "sub-resources could be engine, wheels)."
+        f"You are a fast REST API mock server. Generate a realistic JSON response for: {path}. "
+        "Rules:\n"
+        "1. If it is a list, provide exactly 5 items.\n"
+        "2. Keep metadata etc minimal.\n"
     )
 
     try:
