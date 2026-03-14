@@ -315,6 +315,8 @@ def get_dynamic_resource_by_path(path):
             fk_clauses.append(f'"{match_col}" = ?')
             fk_params.append(resource_id)
 
+    has_parent_scope = len(parent_pairs) > 0
+
     # Attempt 1: ID + FK filters (most accurate when FK columns exist)
     where_1 = []
     params_1 = []
@@ -323,26 +325,36 @@ def get_dynamic_resource_by_path(path):
         params_1.extend(id_params)
     where_1.extend(fk_clauses)
     params_1.extend(fk_params)
-    rows = _select_rows(cursor, table_name, col_sql, where_1, params_1)
+    rows = _select_rows(cursor, table_name, col_sql, where_1, params_1) if where_1 else []
 
     # Attempt 2: ID + source path prefix fallback
-    if not rows:
+    if not rows and "source_path" in columns:
         where_2 = []
         params_2 = []
         if id_clause:
             where_2.append(id_clause)
             params_2.extend(id_params)
-        if "source_path" in columns:
+        # For nested resources we always scope by parent path prefix.
+        if has_parent_scope or id_clause:
             where_2.append('"source_path" LIKE ?')
             params_2.append(f"{source_prefix}%")
         rows = _select_rows(cursor, table_name, col_sql, where_2, params_2)
 
-    # Attempt 3: ID-only for item endpoints, otherwise full table scan for list endpoints
+    # Attempt 3:
+    # - For top-level item endpoints, allow ID-only fallback.
+    # - For top-level list endpoints, allow full table scan.
+    # - For nested endpoints, NEVER do unrestricted scans across all parents.
     if not rows:
         if id_clause:
-            rows = _select_rows(cursor, table_name, col_sql, [id_clause], id_params)
+            if has_parent_scope:
+                rows = []
+            else:
+                rows = _select_rows(cursor, table_name, col_sql, [id_clause], id_params)
         else:
-            rows = _select_rows(cursor, table_name, col_sql, [], [])
+            if has_parent_scope:
+                rows = []
+            else:
+                rows = _select_rows(cursor, table_name, col_sql, [], [])
 
     conn.close()
 
