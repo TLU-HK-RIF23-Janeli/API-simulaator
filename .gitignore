@@ -6,6 +6,10 @@ env/
 # Environment variables
 .env
 
+# Logs and databases
+*.log
+*.db
+
 # Python temporary files
 __pycache__/
 *.py[cod]
