@@ -1,47 +1,190 @@
 import sqlite3
-import os
 import json
-import urllib.parse
+import re
 
 DB_NAME = "simulator.db"
 
-def init_db():
-    """Initializes the structured EAV database schema."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    # 1. Main resource table (The Entity)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS resources (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            resource_type TEXT,
-            external_id TEXT,
+def _sanitize_identifier(name):
+    """Converts arbitrary text to a safe SQLite identifier."""
+    cleaned = re.sub(r"[^a-zA-Z0-9_]", "_", name.strip().lower())
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    if not cleaned:
+        cleaned = "items"
+    if cleaned[0].isdigit():
+        cleaned = f"t_{cleaned}"
+    return cleaned
+
+def _resource_segment_for_path(path):
+    """Returns the resource segment represented by the path."""
+    parts = [p for p in path.split("/") if p]
+    if not parts:
+        return "items"
+    if len(parts) >= 2 and parts[-1].isdigit():
+        return parts[-2]
+    return parts[-1]
+
+def _table_for_path(path):
+    resource = _resource_segment_for_path(path)
+    return _sanitize_identifier(resource)
+
+def _upsert_cached_payload(cursor, path, data):
+    payload = json.dumps(data, ensure_ascii=False)
+    cursor.execute(
+        """
+        INSERT INTO cached_responses (path, payload, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(path) DO UPDATE SET
+            payload = excluded.payload,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (path, payload),
+    )
+
+def _extract_records(data, resource_segment=None):
+    """
+    Returns a list of dict records from common API response shapes.
+    """
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+
+    if isinstance(data, dict):
+        preferred_keys = ["items", "data", "results"]
+        if resource_segment:
+            preferred_keys.append(resource_segment)
+            if resource_segment.endswith("s") and len(resource_segment) > 1:
+                preferred_keys.append(resource_segment[:-1])
+
+        for key in preferred_keys:
+            value = data.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+
+        # Generic fallback: first list-of-dicts field in the object.
+        for value in data.values():
+            if isinstance(value, list) and all(isinstance(item, dict) for item in value):
+                return value
+
+        return [data]
+
+    return []
+
+def _to_sql_value(value):
+    """Stores primitives directly and nested values as JSON text."""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return value
+
+def _ensure_dynamic_table(cursor, table_name):
+    cursor.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS "{table_name}" (
+            row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_path TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
-    ''')
+        '''
+    )
 
-    # 2. Attributes table (The Data Points)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS attributes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            resource_id INTEGER,
-            key TEXT,
-            value TEXT,
-            parent_path TEXT, -- Stores the full JSON path like 'specs.engine'
-            FOREIGN KEY(resource_id) REFERENCES resources(id) ON DELETE CASCADE
-        )
-    ''')
+def _ensure_columns(cursor, table_name, columns):
+    if not columns:
+        return
 
-    # 3. Path mapping
+    cursor.execute(f'PRAGMA table_info("{table_name}")')
+    existing = {row[1] for row in cursor.fetchall()}
+
+    for col in columns:
+        if col not in existing:
+            cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{col}" TEXT')
+
+def _insert_dynamic_records(cursor, table_name, source_path, records):
+    if not records:
+        return
+
+    column_names = set()
+    processed_records = []
+
+    for record in records:
+        processed = {}
+        for key, value in record.items():
+            col = _sanitize_identifier(str(key))
+            processed[col] = _to_sql_value(value)
+            column_names.add(col)
+        processed_records.append(processed)
+
+    _ensure_columns(cursor, table_name, sorted(column_names))
+
+    # Refresh rows originating from this exact request path.
+    cursor.execute(f'DELETE FROM "{table_name}" WHERE source_path = ?', (source_path,))
+
+    ordered_cols = ["source_path"] + sorted(column_names)
+    placeholders = ", ".join(["?"] * len(ordered_cols))
+    col_sql = ", ".join([f'"{col}"' for col in ordered_cols])
+
+    insert_sql = f'INSERT INTO "{table_name}" ({col_sql}) VALUES ({placeholders})'
+    for record in processed_records:
+        values = [source_path] + [record.get(col) for col in ordered_cols[1:]]
+        cursor.execute(insert_sql, values)
+
+def _table_exists(cursor, table_name):
+    cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    )
+    return cursor.fetchone() is not None
+
+def _table_columns(cursor, table_name):
+    cursor.execute(f'PRAGMA table_info("{table_name}")')
+    return [row[1] for row in cursor.fetchall()]
+
+def _decode_maybe_json(value):
+    if not isinstance(value, str):
+        return value
+
+    stripped = value.strip()
+    if stripped.startswith("{") or stripped.startswith("["):
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+def _row_to_dict(column_names, row):
+    result = {}
+    for idx, col in enumerate(column_names):
+        result[col] = _decode_maybe_json(row[idx])
+    return result
+
+def _resource_fk_candidates(resource_name):
+    """Returns likely FK column names for a parent resource segment."""
+    base = _sanitize_identifier(resource_name)
+    candidates = {f"{base}_id"}
+    if base.endswith("s") and len(base) > 1:
+        candidates.add(f"{base[:-1]}_id")
+    candidates.add("parent_id")
+    return list(candidates)
+
+def _select_rows(cursor, table_name, col_sql, where_clauses, params):
+    query = f'SELECT {col_sql} FROM "{table_name}"'
+    if where_clauses:
+        query += " WHERE " + " AND ".join(where_clauses)
+    cursor.execute(query, params)
+    return cursor.fetchall()
+
+def init_db():
+    """Initializes a simple cache schema: one JSON payload per path."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    # Stores the complete AI response for each request path.
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS paths (
+        CREATE TABLE IF NOT EXISTS cached_responses (
             path TEXT PRIMARY KEY,
-            resource_id INTEGER,
-            FOREIGN KEY(resource_id) REFERENCES resources(id) ON DELETE CASCADE
+            payload TEXT NOT NULL,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
 
-    # 4. Blacklist table (The Security Layer)
+    # Optional security layer that can block AI generation for specific paths.
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS blacklist (
             path TEXT PRIMARY KEY,
@@ -52,165 +195,163 @@ def init_db():
     
     conn.commit()
     conn.close()
-    print("Structured database initialized.")
+    print("Simple cache database initialized.")
 
 def save_structured_resource(path, data):
-    import sqlite3
-    import urllib.parse
+    """Saves the full payload and also writes structured rows into a dynamic table."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
-    parts = [p for p in path.split('/') if p]
-    base_type = parts[0] if parts else "item"
+    _upsert_cached_payload(cursor, path, data)
 
-    def flatten_only(obj, res_id, current_json_path=""):
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                new_path = f"{current_json_path}.{k}" if current_json_path else k
-                flatten_only(v, res_id, new_path)
-        elif isinstance(obj, list):
-            for i, item in enumerate(obj):
-                new_path = f"{current_json_path}[{i}]"
-                flatten_only(item, res_id, new_path)
-        else:
-            cursor.execute(
-                "INSERT INTO attributes (resource_id, key, value, parent_path) VALUES (?, ?, ?, ?)",
-                (res_id, current_json_path.split('.')[-1], str(obj), current_json_path)
-            )
+    # Additionally store structured records into a table based on the path root.
+    table_name = _table_for_path(path)
+    resource_segment = _resource_segment_for_path(path)
+    records = _extract_records(data, resource_segment=resource_segment)
+    _ensure_dynamic_table(cursor, table_name)
+    _insert_dynamic_records(cursor, table_name, path, records)
 
-    def scan_for_entities(obj, current_path="", parent_type=None, current_url_prefix=""):
-        if isinstance(obj, dict):
-            discovery_path = None
-            links = obj.get('links') or obj.get('_links')
-            if isinstance(links, dict) and 'self' in links:
-                discovery_path = links['self']
-                if discovery_path and isinstance(discovery_path, str) and discovery_path.startswith('http'):
-                    discovery_path = urllib.parse.urlparse(discovery_path).path
-
-            if 'id' in obj:
-                entity_id = str(obj['id'])
-                entity_type = parent_type if parent_type else base_type
-                
-                # Alati garanteerime ID-põhise tee (see on kõige kindlam)
-                short_path = f"/{entity_type}/{entity_id}"
-                
-                # Kui meil on prefix (oleme sügaval), ehitame pika tee
-                # Nt: /posts/101 + /comments + /501
-                if current_url_prefix:
-                    predicted_path = f"{current_url_prefix.rstrip('/')}/{entity_type}/{entity_id}"
-                else:
-                    predicted_path = short_path
-
-                # Loome ressursi
-                cursor.execute("INSERT INTO resources (resource_type) VALUES (?)", (entity_type,))
-                new_id = cursor.lastrowid
-                
-                # SALVESTAME KÕIK VARIANDID: 
-                # 1. /posts/101 (short_path)
-                # 2. /posts/101 (predicted_path - võib olla sama mis short)
-                # 3. /posts/slug-nimi (discovery_path - AI poolt antud)
-                paths_to_register = {short_path, predicted_path, discovery_path}
-                for p in paths_to_register:
-                    if p:
-                        cursor.execute("INSERT OR IGNORE INTO paths (path, resource_id) VALUES (?, ?)", (p, new_id))
-                
-                flatten_only(obj, new_id)
-                
-                # Edasistele lastele anname kaasa ID-põhise prefixi!
-                # Nii on kindel, et kommentaarid saavad prefixiks /posts/101, mitte /posts/slug
-                new_prefix = short_path
-            else:
-                new_prefix = current_url_prefix
-
-            for k, v in obj.items():
-                next_type = k if k not in ['data', 'items', 'comments_preview'] else parent_type
-                scan_for_entities(v, f"{current_path}.{k}", next_type, new_prefix)
-        
-        elif isinstance(obj, list):
-            for i, item in enumerate(obj):
-                scan_for_entities(item, f"{current_path}[{i}]", parent_type, current_url_prefix)
-
-    # Põhiressursi salvestamine
-    cursor.execute("INSERT INTO resources (resource_type) VALUES (?)", ("main",))
-    main_id = cursor.lastrowid
-    cursor.execute("INSERT OR IGNORE INTO paths (path, resource_id) VALUES (?, ?)", (path, main_id))
-    flatten_only(data, main_id)
-
-    # Skaneerime sisu
-    scan_for_entities(data, parent_type=base_type)
-    
-
-    # --- PÕHIPROTSESS ---
-    # Salvestame algse päringu vastuse (nt /posts)
-    cursor.execute("DELETE FROM paths WHERE path = ?", (path,))
-    cursor.execute("INSERT INTO resources (resource_type) VALUES (?)", ("main",))
-    main_id = cursor.lastrowid
-    cursor.execute("INSERT INTO paths (path, resource_id) VALUES (?, ?)", (path, main_id))
-    
-    flatten_only(data, main_id)
-    scan_for_entities(data, parent_type=base_type)
+    # Save short aliases so /comments/3 can reuse /books/2/comments/3 data.
+    parts = [p for p in path.split("/") if p]
+    if len(parts) >= 2 and parts[-1].isdigit():
+        alias_path = f"/{resource_segment}/{parts[-1]}"
+        if alias_path != path:
+            _upsert_cached_payload(cursor, alias_path, data)
+    else:
+        for record in records:
+            if "id" in record and isinstance(record["id"], (str, int)):
+                alias_path = f"/{resource_segment}/{record['id']}"
+                _upsert_cached_payload(cursor, alias_path, record)
 
     conn.commit()
     conn.close()
-    print("Structured resource saved.")
+    print("Resource saved.")
 
 def get_resource_by_path(path):
+    """Returns parsed JSON payload for path, or None if missing/invalid."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    
-    # 1. ETAPP: Leiame ID (Paths tabel on ainult viit)
-    # Kasutame LIKE, et kui andmebaasis on "/comments/1001", 
-    # siis ta leiaks selle üles ka "/posts/101/comments/1001" alt.
-    cursor.execute("SELECT resource_id FROM paths WHERE path = ? OR path LIKE ?", (path, f"%{path}"))
-    res_row = cursor.fetchone()
-    
-    if not res_row:
+
+    cursor.execute("SELECT payload FROM cached_responses WHERE path = ?", (path,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    try:
+        return json.loads(row[0])
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+def get_dynamic_resource_by_path(path):
+    """
+    Reads data from dynamic resource tables.
+    - /books -> returns list of rows from table books
+    - /books/123 -> returns first row where id='123' (fallback row_id)
+    """
+    parts = [p for p in path.split("/") if p]
+    if not parts:
+        return None
+
+    # Decide target table and optional row identifier from path shape.
+    # /books -> table books (list)
+    # /books/123 -> table books (single item)
+    # /books/123/comments -> table comments (nested list)
+    # /books/123/comments/77 -> table comments (nested item)
+    item_id = None
+    if len(parts) >= 2 and parts[-1].isdigit():
+        table_segment_index = len(parts) - 2
+        item_id = parts[-1]
+        source_prefix = "/" + "/".join(parts[:-1])
+    else:
+        table_segment_index = len(parts) - 1
+        source_prefix = "/" + "/".join(parts)
+
+    table_name = _sanitize_identifier(parts[table_segment_index])
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    if not _table_exists(cursor, table_name):
         conn.close()
         return None
-    
-    res_id = res_row[0]
 
-    # 2. ETAPP: Sinu vana kood hakkab tööle!
-    # Me ei küsi enam tee järgi, vaid ID järgi. Nii on lollikindel.
-    cursor.execute("SELECT parent_path, value FROM attributes WHERE resource_id = ?", (res_id,))
-    rows = cursor.fetchall()
+    columns = _table_columns(cursor, table_name)
+    col_sql = ", ".join([f'"{c}"' for c in columns])
+
+    # Build parent filters from all resource/id pairs preceding the target table.
+    parent_pairs = []
+    i = 0
+    while i + 1 < table_segment_index:
+        if parts[i + 1].isdigit():
+            parent_pairs.append((parts[i], parts[i + 1]))
+            i += 2
+        else:
+            i += 1
+
+    id_clause = None
+    id_params = []
+    if item_id is not None:
+        if "id" in columns:
+            id_clause = '"id" = ?'
+            id_params = [item_id]
+        elif "row_id" in columns and item_id.isdigit():
+            id_clause = '"row_id" = ?'
+            id_params = [int(item_id)]
+        else:
+            conn.close()
+            return None
+
+    fk_clauses = []
+    fk_params = []
+    for resource_name, resource_id in parent_pairs:
+        match_col = None
+        for candidate in _resource_fk_candidates(resource_name):
+            if candidate in columns:
+                match_col = candidate
+                break
+        if match_col:
+            fk_clauses.append(f'"{match_col}" = ?')
+            fk_params.append(resource_id)
+
+    # Attempt 1: ID + FK filters (most accurate when FK columns exist)
+    where_1 = []
+    params_1 = []
+    if id_clause:
+        where_1.append(id_clause)
+        params_1.extend(id_params)
+    where_1.extend(fk_clauses)
+    params_1.extend(fk_params)
+    rows = _select_rows(cursor, table_name, col_sql, where_1, params_1)
+
+    # Attempt 2: ID + source path prefix fallback
+    if not rows:
+        where_2 = []
+        params_2 = []
+        if id_clause:
+            where_2.append(id_clause)
+            params_2.extend(id_params)
+        if "source_path" in columns:
+            where_2.append('"source_path" LIKE ?')
+            params_2.append(f"{source_prefix}%")
+        rows = _select_rows(cursor, table_name, col_sql, where_2, params_2)
+
+    # Attempt 3: ID-only for item endpoints, otherwise full table scan for list endpoints
+    if not rows:
+        if id_clause:
+            rows = _select_rows(cursor, table_name, col_sql, [id_clause], id_params)
+        else:
+            rows = _select_rows(cursor, table_name, col_sql, [], [])
+
     conn.close()
 
     if not rows:
         return None
 
-    # --- SIIT ALGAB SINU ORIGINAALNE KOOD ---
-    result = {}
-    for full_path, value in rows:
-        # Normalize paths like 'data[0].id' to 'data.0.id'
-        parts = full_path.replace('[', '.').replace(']', '').split('.')
-        current = result
-        
-        for i, part in enumerate(parts):
-            is_last = (i == len(parts) - 1)
-            
-            if part.isdigit():
-                idx = int(part)
-                while len(current) <= idx:
-                    current.append(None)
-                
-                if is_last:
-                    current[idx] = value
-                else:
-                    if current[idx] is None:
-                        next_part = parts[i+1]
-                        current[idx] = [] if next_part.isdigit() else {}
-                    current = current[idx]
-            else:
-                if is_last:
-                    current[part] = value
-                else:
-                    if part not in current or current[part] is None:
-                        next_part = parts[i+1]
-                        current[part] = [] if next_part.isdigit() else {}
-                    current = current[part]
-                
-    return result
+    if item_id is not None:
+        return _row_to_dict(columns, rows[0])
+    return [_row_to_dict(columns, row) for row in rows]
 
 def is_blacklisted(path):
     """

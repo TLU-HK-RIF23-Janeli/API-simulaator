@@ -10,6 +10,25 @@ app.json.sort_keys = False  # Preserve the order of JSON keys as they are define
 # On startup, initialize the database
 database.init_db()
 
+def _find_parent_context(path):
+    """Finds the nearest parent path that already exists in cache or dynamic tables."""
+    parts = [p for p in path.split('/') if p]
+    if len(parts) < 2:
+        return None, None
+
+    # Trim from right to left: /a/b/c -> /a/b -> /a
+    for i in range(len(parts) - 1, 0, -1):
+        candidate = "/" + "/".join(parts[:i])
+
+        data = database.get_resource_by_path(candidate)
+        if data is None:
+            data = database.get_dynamic_resource_by_path(candidate)
+
+        if data is not None:
+            return candidate, data
+
+    return None, None
+
 @app.route('/')
 def home():
     return jsonify({
@@ -24,6 +43,10 @@ def delete_all():
     reset_db.clear_database()
     return jsonify({"message": "All data deleted."}), 200
 
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
+
 @app.route('/<path:subpath>')
 async def handle_api_request(subpath):
     start_time = time.time()  # Käivitame stopperi
@@ -32,7 +55,7 @@ async def handle_api_request(subpath):
     # 1. Otsime andmebaasist
     existing_data = database.get_resource_by_path(full_path)
     
-    if existing_data:
+    if existing_data is not None:
         duration = (time.time() - start_time) * 1000  # Arvutame kestuse millisekundites
         print(f"CACHE HIT: {full_path} kätte saadud {duration:.2f} ms-ga.")
         
@@ -41,9 +64,27 @@ async def handle_api_request(subpath):
         response.headers['X-Response-Time-MS'] = f"{duration:.2f}"
         return response, 200
 
+    # 1.5. If exact cache miss, check dynamic tables (e.g. /books, /books/123)
+    dynamic_data = database.get_dynamic_resource_by_path(full_path)
+    if dynamic_data is not None:
+        duration = (time.time() - start_time) * 1000
+        print(f"TABLE HIT: {full_path} kätte saadud {duration:.2f} ms-ga.")
+
+        response = jsonify(dynamic_data)
+        response.headers['X-Response-Time-MS'] = f"{duration:.2f}"
+        return response, 200
+
     # 2. Kui pole andmebaasis, siis AI
     print(f"CACHE MISS: {full_path} läheb AI-le...")
-    new_data = await ai_client.get_ai_content(full_path)
+    parent_path, parent_data = _find_parent_context(full_path)
+    if parent_data is not None:
+        print(f"PARENT CONTEXT FOUND: {parent_path}")
+
+    new_data = await ai_client.get_ai_content(
+        full_path,
+        parent_path=parent_path,
+        parent_data=parent_data,
+    )
     
     if "error" not in new_data:
         database.save_structured_resource(full_path, new_data)
