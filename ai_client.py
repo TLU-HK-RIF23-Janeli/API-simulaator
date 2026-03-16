@@ -36,6 +36,7 @@ BASE_INSTRUCTIONS = (
     "  \"message\": \"Path '/bycycles' not found. Did you mean '/bicycles'?\",\n"
     "  \"status\": 404\n"
     "}\n"
+    "7. If you are requested a specific resource that is not found yet, please generate a new resource with requested id, e.g. if the path is /books/999, generate a new book with \"id\": 999.\n"
 )
 
 def _estimate_tokens(text):
@@ -62,7 +63,7 @@ def _extract_response_text(response):
                 return text_value
     return None
 
-async def get_ai_content(path, parent_path=None, parent_data=None):
+async def get_ai_content(path, parent_path=None, parent_data=None, expected_schema=None):
     """
     Requests JSON content from the AI based on the provided URL path.
     """
@@ -81,9 +82,19 @@ async def get_ai_content(path, parent_path=None, parent_data=None):
             "For example, comments under /books/2 should clearly belong to book 2.\n"
         )
 
+    schema_block = ""
+    if expected_schema:
+        schema_block = (
+            "Existing schema columns for this resource table:\n"
+            f"{json.dumps(expected_schema, ensure_ascii=False)}\n"
+            "Your response records must use only these columns. "
+            "Do not invent new column names.\n"
+        )
+
     user_input = (
         f"Generate a realistic JSON response for path: {path}.\n"
         f"{context_block}"
+        f"{schema_block}"
     )
 
     try:
@@ -116,6 +127,11 @@ async def get_ai_content(path, parent_path=None, parent_data=None):
         content = _extract_response_text(response)
         if not content:
             raise ValueError("Responses API returned no text output")
+
+        print("[AI] Raw response text start")
+        print(content)
+        print("[AI] Raw response text end")
+
         return json.loads(content)
     except Exception as e:
         print(f"AI Client Error: {e}")

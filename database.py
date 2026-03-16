@@ -27,6 +27,58 @@ def _table_for_path(path):
     resource = _resource_segment_for_path(path)
     return _sanitize_identifier(resource)
 
+
+def _data_columns_for_table(cursor, table_name):
+    system_columns = {"row_id", "source_path", "created_at"}
+    return [col for col in _table_columns(cursor, table_name) if col not in system_columns]
+
+
+def get_existing_schema_for_path(path):
+    """
+    Returns existing data columns for the resource table inferred from path.
+    Empty list means schema not established yet.
+    """
+    table_name = _table_for_path(path)
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        if not _table_exists(cursor, table_name):
+            return []
+        return _data_columns_for_table(cursor, table_name)
+    finally:
+        conn.close()
+
+
+def validate_payload_against_existing_schema(path, data):
+    """
+    Validates payload record fields against existing table schema for path.
+    If schema is not established, validation passes.
+    """
+    schema_columns = set(get_existing_schema_for_path(path))
+    if not schema_columns:
+        return True, None
+
+    resource_segment = _resource_segment_for_path(path)
+    records = _extract_records(data, resource_segment=resource_segment)
+    if not records:
+        return True, None
+
+    for idx, record in enumerate(records):
+        if not isinstance(record, dict):
+            continue
+
+        record_columns = {_sanitize_identifier(str(key)) for key in record.keys()}
+        unknown_columns = sorted(record_columns - schema_columns)
+        if unknown_columns:
+            return False, {
+                "path": path,
+                "schema_columns": sorted(schema_columns),
+                "unknown_columns": unknown_columns,
+                "record_index": idx,
+            }
+
+    return True, None
+
 def _upsert_cached_payload(cursor, path, data):
     payload = json.dumps(data, ensure_ascii=False)
     cursor.execute(
@@ -310,6 +362,10 @@ def save_structured_resource(path, data):
     # Save short aliases so /comments/3 can reuse /books/2/comments/3 data.
     parts = [p for p in path.split("/") if p]
     if len(parts) >= 2 and parts[-1].isdigit():
+        # Invalidate parent collection cache so future collection reads include this item.
+        collection_path = "/" + "/".join(parts[:-1])
+        cursor.execute("DELETE FROM cached_responses WHERE path = ?", (collection_path,))
+
         alias_path = f"/{resource_segment}/{parts[-1]}"
         if alias_path != path:
             _upsert_cached_payload(cursor, alias_path, data)
@@ -461,6 +517,64 @@ def get_dynamic_resource_by_path(path):
     if item_id is not None:
         return _row_to_dict(columns, rows[0])
     return [_row_to_dict(columns, row) for row in rows]
+
+def has_conflicting_nested_item(path):
+    """
+    Returns True when a nested item path refers to an ID that exists in the
+    target resource table, but only under a different parent scope.
+    Example: /books/2/comments/1 when comment id=1 exists under /books/1.
+    """
+    parts = [p for p in path.split("/") if p]
+    if len(parts) < 4 or not parts[-1].isdigit():
+        return False
+
+    table_segment_index = len(parts) - 2
+    item_id = parts[-1]
+    table_name = _sanitize_identifier(parts[table_segment_index])
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    try:
+        if not _table_exists(cursor, table_name):
+            return False
+
+        columns = _table_columns(cursor, table_name)
+        if "id" not in columns:
+            return False
+
+        parent_pairs = _parent_pairs_for_path(path)
+        if not parent_pairs:
+            return False
+
+        cursor.execute(
+            f'SELECT 1 FROM "{table_name}" WHERE "id" = ? LIMIT 1',
+            (item_id,),
+        )
+        if cursor.fetchone() is None:
+            return False
+
+        fk_clauses = []
+        fk_params = []
+        for resource_name, resource_id in parent_pairs:
+            match_col = None
+            for candidate in _resource_fk_candidates(resource_name):
+                if candidate in columns:
+                    match_col = candidate
+                    break
+            if match_col is None:
+                return False
+            fk_clauses.append(f'"{match_col}" = ?')
+            fk_params.append(resource_id)
+
+        where = ' AND '.join(['"id" = ?'] + fk_clauses)
+        cursor.execute(
+            f'SELECT 1 FROM "{table_name}" WHERE {where} LIMIT 1',
+            [item_id] + fk_params,
+        )
+        return cursor.fetchone() is None
+    finally:
+        conn.close()
 
 def is_blacklisted(path):
     """
