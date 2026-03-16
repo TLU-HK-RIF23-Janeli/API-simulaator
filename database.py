@@ -163,6 +163,100 @@ def _resource_fk_candidates(resource_name):
     candidates.add("parent_id")
     return list(candidates)
 
+def _preferred_fk_field(resource_name):
+    """Returns a stable FK field name for a parent resource segment."""
+    base = _sanitize_identifier(resource_name)
+    if base.endswith("s") and len(base) > 1:
+        base = base[:-1]
+    return f"{base}_id"
+
+def _parent_pairs_for_path(path):
+    """Returns parent resource/id pairs that scope the current path."""
+    parts = [p for p in path.split("/") if p]
+    if not parts:
+        return []
+
+    if len(parts) >= 2 and parts[-1].isdigit():
+        table_segment_index = len(parts) - 2
+    else:
+        table_segment_index = len(parts) - 1
+
+    parent_pairs = []
+    index = 0
+    while index + 1 < table_segment_index:
+        if parts[index + 1].isdigit():
+            parent_pairs.append((parts[index], parts[index + 1]))
+            index += 2
+        else:
+            index += 1
+
+    return parent_pairs
+
+def _existing_numeric_ids(cursor, table_name, exclude_source_path=None):
+    """Returns integer IDs already used in a dynamic table."""
+    if not _table_exists(cursor, table_name):
+        return set()
+
+    columns = _table_columns(cursor, table_name)
+    if "id" not in columns:
+        return set()
+
+    query = f'SELECT "id" FROM "{table_name}"'
+    params = []
+    if exclude_source_path and "source_path" in columns:
+        query += ' WHERE "source_path" != ?'
+        params.append(exclude_source_path)
+
+    cursor.execute(query, params)
+    existing_ids = set()
+    for row in cursor.fetchall():
+        value = row[0]
+        try:
+            existing_ids.add(int(value))
+        except (TypeError, ValueError):
+            continue
+
+    return existing_ids
+
+def _normalize_generated_data(cursor, path, data):
+    """
+    Normalizes generated records so IDs stay unique per resource table and
+    nested resources keep a consistent parent foreign key.
+    """
+    resource_segment = _resource_segment_for_path(path)
+    records = _extract_records(data, resource_segment=resource_segment)
+    if not records:
+        return data
+
+    table_name = _table_for_path(path)
+    existing_ids = _existing_numeric_ids(cursor, table_name, exclude_source_path=path)
+    next_id = max(existing_ids, default=0) + 1
+    parent_pairs = _parent_pairs_for_path(path)
+    parts = [p for p in path.split("/") if p]
+    path_item_id = int(parts[-1]) if len(parts) >= 2 and parts[-1].isdigit() else None
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+
+        for parent_resource, parent_id in parent_pairs:
+            fk_field = _preferred_fk_field(parent_resource)
+            record[fk_field] = int(parent_id)
+
+        if path_item_id is not None:
+            record["id"] = path_item_id
+            existing_ids.add(path_item_id)
+            next_id = max(next_id, path_item_id + 1)
+            continue
+
+        while next_id in existing_ids:
+            next_id += 1
+        record["id"] = next_id
+        existing_ids.add(next_id)
+        next_id += 1
+
+    return data
+
 def _select_rows(cursor, table_name, col_sql, where_clauses, params):
     query = f'SELECT {col_sql} FROM "{table_name}"'
     if where_clauses:
@@ -202,6 +296,8 @@ def save_structured_resource(path, data):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
+    data = _normalize_generated_data(cursor, path, data)
+
     _upsert_cached_payload(cursor, path, data)
 
     # Additionally store structured records into a table based on the path root.
@@ -226,6 +322,7 @@ def save_structured_resource(path, data):
     conn.commit()
     conn.close()
     print("Resource saved.")
+    return data
 
 def get_resource_by_path(path):
     """Returns parsed JSON payload for path, or None if missing/invalid."""
@@ -373,8 +470,16 @@ def is_blacklisted(path):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # We check the 'blacklist' table which we defined in init_db()
-    cursor.execute("SELECT 1 FROM blacklist WHERE path = ?", (path,))
+    # Block exact path and all descendants of any blacklisted parent path.
+    cursor.execute(
+        """
+        SELECT 1
+        FROM blacklist
+        WHERE path = ? OR ? LIKE path || '/%'
+        LIMIT 1
+        """,
+        (path, path),
+    )
     result = cursor.fetchone()
     
     conn.close()
@@ -393,5 +498,215 @@ def add_to_blacklist(path, reason="No reason provided"):
         print(f"Path {path} has been blacklisted.")
     except Exception as e:
         print(f"Error blacklisting path: {e}")
+    finally:
+        conn.close()
+
+def _delete_dynamic_rows_for_path(cursor, path):
+    """
+    Deletes rows from the dynamic table inferred from path.
+    Returns number of deleted rows.
+    """
+    parts = [p for p in path.split("/") if p]
+    if not parts:
+        return 0
+
+    item_id = None
+    if len(parts) >= 2 and parts[-1].isdigit():
+        table_segment_index = len(parts) - 2
+        item_id = parts[-1]
+    else:
+        table_segment_index = len(parts) - 1
+
+    table_name = _sanitize_identifier(parts[table_segment_index])
+    if not _table_exists(cursor, table_name):
+        return 0
+
+    columns = _table_columns(cursor, table_name)
+
+    if item_id is not None:
+        # Prefer deleting by stable resource "id", fallback to SQLite row_id.
+        if "id" in columns:
+            cursor.execute(f'DELETE FROM "{table_name}" WHERE "id" = ?', (item_id,))
+        elif "row_id" in columns and item_id.isdigit():
+            cursor.execute(f'DELETE FROM "{table_name}" WHERE "row_id" = ?', (int(item_id),))
+        else:
+            return 0
+    else:
+        # Remove rows generated for this collection path (and nested children of it).
+        cursor.execute(
+            f'DELETE FROM "{table_name}" WHERE source_path = ? OR source_path LIKE ?',
+            (path, f"{path}/%"),
+        )
+
+    return cursor.rowcount if cursor.rowcount is not None else 0
+
+def _delete_dynamic_rows_for_subtree(cursor, path):
+    """
+    Deletes rows in all dynamic tables where source_path is under path.
+    Returns total number of deleted rows.
+    """
+    cursor.execute(
+        """
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name NOT IN ('cached_responses', 'blacklist', 'sqlite_sequence')
+        """
+    )
+    table_names = [row[0] for row in cursor.fetchall()]
+
+    deleted_total = 0
+    for table_name in table_names:
+        columns = _table_columns(cursor, table_name)
+        if "source_path" not in columns:
+            continue
+
+        cursor.execute(
+            f'DELETE FROM "{table_name}" WHERE source_path LIKE ?',
+            (f"{path}/%",),
+        )
+        deleted_total += cursor.rowcount if cursor.rowcount is not None else 0
+
+    return deleted_total
+
+def _collect_alias_paths_for_subtree(cursor, path):
+    """
+    Collects short alias paths (e.g. /comments/1) for dynamic rows stored under path.
+    """
+    cursor.execute(
+        """
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name NOT IN ('cached_responses', 'blacklist', 'sqlite_sequence')
+        """
+    )
+    table_names = [row[0] for row in cursor.fetchall()]
+
+    alias_paths = set()
+    for table_name in table_names:
+        columns = _table_columns(cursor, table_name)
+        if "source_path" not in columns or "id" not in columns:
+            continue
+
+        cursor.execute(
+            f'SELECT "id" FROM "{table_name}" WHERE source_path = ? OR source_path LIKE ?',
+            (path, f"{path}/%"),
+        )
+        for row in cursor.fetchall():
+            item_id = row[0]
+            if item_id is None:
+                continue
+            alias_paths.add(f"/{table_name}/{item_id}")
+
+    return alias_paths
+
+def _collection_path_for_item(path):
+    """
+    Returns the parent collection path for an item path, or None.
+    Example: /books/1 -> /books, /books/1/comments/3 -> /books/1/comments
+    """
+    parts = [p for p in path.split("/") if p]
+    if len(parts) < 2 or not parts[-1].isdigit():
+        return None
+    return "/" + "/".join(parts[:-1])
+
+def _alias_path_for_item(path):
+    """
+    Returns the short alias path for an item path, or None.
+    Example: /books/1/comments/3 -> /comments/3
+    """
+    parts = [p for p in path.split("/") if p]
+    if len(parts) < 2 or not parts[-1].isdigit():
+        return None
+
+    resource_segment = _resource_segment_for_path(path)
+    return f"/{resource_segment}/{parts[-1]}"
+
+def delete_resource_and_blacklist(path, reason="Deleted by API client"):
+    """
+    Deletes a resource from cache/dynamic tables and blacklists the path
+    so AI generation cannot recreate it.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    deleted_cache_rows = 0
+    deleted_dynamic_rows = 0
+    try:
+        alias_paths = _collect_alias_paths_for_subtree(cursor, path)
+        direct_alias_path = _alias_path_for_item(path)
+        if direct_alias_path and direct_alias_path != path:
+            alias_paths.add(direct_alias_path)
+
+        collection_paths_to_invalidate = set()
+
+        collection_path = _collection_path_for_item(path)
+        if collection_path:
+            collection_paths_to_invalidate.add(collection_path)
+
+        for alias_path in alias_paths:
+            alias_collection_path = _collection_path_for_item(alias_path)
+            if alias_collection_path:
+                collection_paths_to_invalidate.add(alias_collection_path)
+
+        cursor.execute(
+            "DELETE FROM cached_responses WHERE path = ? OR path LIKE ?",
+            (path, f"{path}/%"),
+        )
+        deleted_cache_rows = cursor.rowcount if cursor.rowcount is not None else 0
+
+        for alias_path in alias_paths:
+            cursor.execute("DELETE FROM cached_responses WHERE path = ?", (alias_path,))
+            deleted_cache_rows += cursor.rowcount if cursor.rowcount is not None else 0
+
+        for collection_path in collection_paths_to_invalidate:
+            cursor.execute("DELETE FROM cached_responses WHERE path = ?", (collection_path,))
+            deleted_cache_rows += cursor.rowcount if cursor.rowcount is not None else 0
+
+        deleted_dynamic_rows = _delete_dynamic_rows_for_path(cursor, path)
+        deleted_dynamic_rows += _delete_dynamic_rows_for_subtree(cursor, path)
+
+        cursor.execute(
+            """
+            INSERT INTO blacklist (path, reason, blocked_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(path) DO UPDATE SET
+                reason = excluded.reason,
+                blocked_at = CURRENT_TIMESTAMP
+            """,
+            (path, reason),
+        )
+
+        for alias_path in alias_paths:
+            cursor.execute(
+                """
+                INSERT INTO blacklist (path, reason, blocked_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(path) DO UPDATE SET
+                    reason = excluded.reason,
+                    blocked_at = CURRENT_TIMESTAMP
+                """,
+                (alias_path, reason),
+            )
+
+        conn.commit()
+        return {
+            "path": path,
+            "deleted_cache_rows": deleted_cache_rows,
+            "deleted_dynamic_rows": deleted_dynamic_rows,
+            "blacklisted_alias_paths": len(alias_paths),
+            "blacklisted": True,
+        }
+    except Exception as e:
+        conn.rollback()
+        print(f"Error deleting/blacklisting path: {e}")
+        return {
+            "path": path,
+            "deleted_cache_rows": deleted_cache_rows,
+            "deleted_dynamic_rows": deleted_dynamic_rows,
+            "blacklisted": False,
+            "error": str(e),
+        }
     finally:
         conn.close()

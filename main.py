@@ -47,11 +47,51 @@ def delete_all():
 def favicon():
     return '', 204
 
+@app.route('/<path:subpath>', methods=['DELETE'])
+def delete_resource(subpath):
+    full_path = "/" + subpath.strip('/')
+    parts = [p for p in full_path.split('/') if p]
+
+    # Allow deletion only for item endpoints that end with a numeric ID.
+    if not parts or not parts[-1].isdigit():
+        return jsonify({
+            "error": "FORBIDDEN",
+            "message": "Deletion is allowed only for resource paths ending with a numeric ID.",
+            "status": 403,
+            "path": full_path,
+        }), 403
+
+    body = request.get_json(silent=True) or {}
+    reason = body.get("reason") or request.args.get("reason") or "Deleted by API client"
+
+    result = database.delete_resource_and_blacklist(full_path, reason)
+    if result.get("error"):
+        return jsonify({
+            "message": "Failed to delete and blacklist resource.",
+            **result,
+        }), 500
+
+    return jsonify({
+        "message": f"Resource {full_path} deleted and blacklisted.",
+        **result,
+    }), 200
+
 @app.route('/<path:subpath>')
 async def handle_api_request(subpath):
     start_time = time.time()  # Käivitame stopperi
     full_path = "/" + subpath.strip('/')
-    
+
+    # Block known deleted/forbidden paths before any cache/table/AI lookup.
+    if database.is_blacklisted(full_path):
+        duration = (time.time() - start_time) * 1000
+        response = jsonify({
+            "error": "RESOURCE_DELETED",
+            "message": f"Path '{full_path}' is deleted by user and cannot be generated.",
+            "status": 404,
+        })
+        response.headers['X-Response-Time-MS'] = f"{duration:.2f}"
+        return response, 404
+
     # 1. Otsime andmebaasist
     existing_data = database.get_resource_by_path(full_path)
     
@@ -87,7 +127,7 @@ async def handle_api_request(subpath):
     )
     
     if "error" not in new_data:
-        database.save_structured_resource(full_path, new_data)
+        new_data = database.save_structured_resource(full_path, new_data)
     
     duration = time.time() - start_time  # AI puhul mõõdame pigem sekundites
     print(f"AI GENERAATOR: Valmis {duration:.2f} sekundiga.")
