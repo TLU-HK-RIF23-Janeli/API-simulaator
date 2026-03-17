@@ -373,6 +373,120 @@ def _select_rows(cursor, table_name, col_sql, where_clauses, params):
     cursor.execute(query, params)
     return cursor.fetchall()
 
+def _find_dynamic_row_for_item_path(cursor, path):
+    """
+    Returns the first matching dynamic-table row for an item path, including
+    row metadata needed for scoped updates.
+    """
+    parts = [p for p in path.split("/") if p]
+    if len(parts) < 2 or not parts[-1].isdigit():
+        return None, None, None
+
+    table_segment_index = len(parts) - 2
+    item_id = parts[-1]
+    source_prefix = "/" + "/".join(parts[:-1])
+    table_name = _sanitize_identifier(parts[table_segment_index])
+
+    if not _table_exists(cursor, table_name):
+        return None, None, None
+
+    columns = _table_columns(cursor, table_name)
+    col_sql = ", ".join([f'"{column}"' for column in columns])
+
+    id_clause = None
+    id_params = []
+    if "id" in columns:
+        id_clause = '"id" = ?'
+        id_params = [item_id]
+    elif "row_id" in columns and item_id.isdigit():
+        id_clause = '"row_id" = ?'
+        id_params = [int(item_id)]
+    else:
+        return None, None, None
+
+    parent_pairs = _parent_pairs_for_path(path)
+    fk_clauses = []
+    fk_params = []
+    for resource_name, resource_id in parent_pairs:
+        match_col = None
+        for candidate in _resource_fk_candidates(resource_name):
+            if candidate in columns:
+                match_col = candidate
+                break
+        if match_col:
+            fk_clauses.append(f'"{match_col}" = ?')
+            fk_params.append(resource_id)
+
+    has_parent_scope = len(parent_pairs) > 0
+
+    where_1 = [id_clause]
+    params_1 = list(id_params)
+    where_1.extend(fk_clauses)
+    params_1.extend(fk_params)
+    rows = _select_rows(cursor, table_name, col_sql, where_1, params_1)
+
+    if not rows and "source_path" in columns:
+        where_2 = [id_clause, '"source_path" LIKE ?']
+        params_2 = list(id_params) + [f"{source_prefix}%"]
+        rows = _select_rows(cursor, table_name, col_sql, where_2, params_2)
+
+    if not rows and not has_parent_scope:
+        rows = _select_rows(cursor, table_name, col_sql, [id_clause], id_params)
+
+    if not rows:
+        return None, None, None
+
+    return table_name, columns, _row_to_dict(columns, rows[0])
+
+def _item_paths_for_dynamic_row(path, row):
+    """Collects item cache paths that should stay in sync for a single row."""
+    item_paths = {path}
+
+    item_id = row.get("id")
+    if item_id is None:
+        return item_paths
+
+    resource_segment = _resource_segment_for_path(path)
+    alias_path = f"/{resource_segment}/{item_id}"
+    item_paths.add(alias_path)
+
+    source_path = row.get("source_path")
+    if isinstance(source_path, str) and source_path:
+        source_parts = [part for part in source_path.split("/") if part]
+        if source_parts:
+            if source_parts[-1].isdigit():
+                item_paths.add(source_path)
+            else:
+                item_paths.add(f"{source_path}/{item_id}")
+
+    return {candidate for candidate in item_paths if isinstance(candidate, str) and candidate}
+
+def _collection_paths_for_dynamic_row(path, row):
+    """Collects collection cache paths affected by an item update."""
+    collection_paths = set()
+
+    request_collection_path = _collection_path_for_item(path)
+    if request_collection_path:
+        collection_paths.add(request_collection_path)
+
+    for item_path in _item_paths_for_dynamic_row(path, row):
+        collection_path = _collection_path_for_item(item_path)
+        if collection_path:
+            collection_paths.add(collection_path)
+
+    source_path = row.get("source_path")
+    if isinstance(source_path, str) and source_path:
+        source_parts = [part for part in source_path.split("/") if part]
+        if source_parts:
+            if source_parts[-1].isdigit():
+                source_collection_path = _collection_path_for_item(source_path)
+            else:
+                source_collection_path = source_path
+            if source_collection_path:
+                collection_paths.add(source_collection_path)
+
+    return collection_paths
+
 def init_db():
     """Initializes a simple cache schema: one JSON payload per path."""
     conn = sqlite3.connect(DB_NAME)
@@ -474,6 +588,70 @@ def save_user_resource(path, data):
     conn.close()
     print("User resource saved.")
     return data
+
+def update_user_resource(path, data):
+    """
+    Updates an existing single resource in place.
+    The payload is expected to be the fully merged public record.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    try:
+        if isinstance(data, list):
+            data = data[0] if data else {}
+
+        if not isinstance(data, dict):
+            return {"error": "Invalid data type"}
+
+        table_name, columns, existing_row = _find_dynamic_row_for_item_path(cursor, path)
+        if existing_row is None:
+            return None
+
+        update_columns = _data_columns_for_table(cursor, table_name)
+        processed = {
+            _sanitize_identifier(str(key)): _to_sql_value(value)
+            for key, value in data.items()
+        }
+
+        assignments = []
+        values = []
+        for column in update_columns:
+            if column not in processed:
+                continue
+            assignments.append(f'"{column}" = ?')
+            values.append(processed[column])
+
+        if not assignments:
+            return {"error": "No updatable fields"}
+
+        if "source_path" in columns:
+            assignments.append('"source_path" = ?')
+            values.append(existing_row.get("source_path"))
+
+        values.append(existing_row["row_id"])
+        cursor.execute(
+            f'UPDATE "{table_name}" SET {", ".join(assignments)} WHERE "row_id" = ?',
+            values,
+        )
+
+        updated_row = dict(existing_row)
+        updated_row.update(data)
+
+        for item_path in _item_paths_for_dynamic_row(path, updated_row):
+            _upsert_cached_payload(cursor, item_path, data)
+
+        for collection_path in _collection_paths_for_dynamic_row(path, updated_row):
+            cursor.execute("DELETE FROM cached_responses WHERE path = ?", (collection_path,))
+
+        conn.commit()
+        return data
+    except Exception as e:
+        conn.rollback()
+        print(f"Error updating resource: {e}")
+        return {"error": str(e)}
+    finally:
+        conn.close()
 
 
 def save_structured_resource(path, data):

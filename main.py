@@ -205,6 +205,18 @@ def _schema_validation_error_response(details, duration_seconds):
     return response, 422
 
 
+def _conflict_response(full_path, message, details=None):
+    payload = {
+        "error": "CONFLICT",
+        "message": message,
+        "status": 409,
+        "path": full_path,
+    }
+    if details is not None:
+        payload["details"] = details
+    return jsonify(payload), 409
+
+
 def _is_collection_path(path):
     parts = [p for p in path.split('/') if p]
     return bool(parts) and not parts[-1].isdigit()
@@ -500,6 +512,114 @@ async def post_resource(subpath):
     response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
     return response, 201
 
+@app.route('/<path:subpath>', methods=['PUT'])
+def put_resource(subpath):
+    start_time = time.time()
+    full_path = "/" + subpath.strip('/')
+    parts = [p for p in full_path.split('/') if p]
+
+    if not parts or not parts[-1].isdigit():
+        return jsonify({
+            "error": "FORBIDDEN",
+            "message": "PUT is allowed only for resource paths ending with a numeric ID.",
+            "status": 403,
+            "path": full_path,
+        }), 403
+
+    if database.is_blacklisted(full_path):
+        return jsonify({
+            "error": "RESOURCE_DELETED",
+            "message": f"Path '{full_path}' is deleted by user and cannot be updated.",
+            "status": 404,
+            "path": full_path,
+        }), 404
+
+    body = request.get_json(silent=True)
+    if body is None or not isinstance(body, dict):
+        return jsonify({
+            "error": "BAD_REQUEST",
+            "message": "PUT request requires a valid JSON object body.",
+            "status": 400,
+            "path": full_path,
+        }), 400
+
+    existing_data = database.get_dynamic_resource_by_path(full_path)
+    if existing_data is None:
+        existing_data = database.get_resource_by_path(full_path)
+    if existing_data is None:
+        return jsonify({
+            "error": "NOT_FOUND",
+            "message": f"Path '{full_path}' does not exist.",
+            "status": 404,
+            "path": full_path,
+        }), 404
+
+    existing_data = _normalize_public_response(existing_data)
+    if not isinstance(existing_data, dict):
+        return jsonify({
+            "error": "NOT_FOUND",
+            "message": f"Path '{full_path}' does not resolve to a single updatable resource.",
+            "status": 404,
+            "path": full_path,
+        }), 404
+
+    path_id = int(parts[-1])
+    payload_id = body.get("id")
+    if payload_id is not None and _coerce_int_like(payload_id) != path_id:
+        return _conflict_response(
+            full_path,
+            "Payload id must match the resource id in the request path.",
+            {"path_id": path_id, "payload_id": payload_id},
+        )
+
+    for parent_resource, parent_id in _parent_pairs_for_path(full_path):
+        fk_field = _preferred_fk_field(parent_resource)
+        payload_fk = body.get(fk_field)
+        if payload_fk is not None and _coerce_int_like(payload_fk) != int(parent_id):
+            return _conflict_response(
+                full_path,
+                f"Payload field '{fk_field}' must match the parent resource id in the request path.",
+                {"field": fk_field, "path_parent_id": int(parent_id), "payload_parent_id": payload_fk},
+            )
+
+    merged_data = dict(existing_data)
+    merged_data.update(body)
+    merged_data["id"] = path_id
+    for parent_resource, parent_id in _parent_pairs_for_path(full_path):
+        merged_data[_preferred_fk_field(parent_resource)] = int(parent_id)
+
+    is_valid, mismatch_details = database.validate_payload_against_existing_schema(full_path, merged_data)
+    if not is_valid:
+        duration = time.time() - start_time
+        return _schema_validation_error_response(mismatch_details, duration)
+
+    updated_data = database.update_user_resource(full_path, merged_data)
+    if updated_data is None:
+        return jsonify({
+            "error": "NOT_FOUND",
+            "message": f"Path '{full_path}' does not exist.",
+            "status": 404,
+            "path": full_path,
+        }), 404
+    if isinstance(updated_data, dict) and updated_data.get("error"):
+        return jsonify({
+            "error": "UPDATE_FAILED",
+            "message": "Failed to update resource.",
+            "status": 500,
+            "path": full_path,
+            "details": updated_data,
+        }), 500
+
+    duration = time.time() - start_time
+    response = jsonify({
+        "message": f"Resource updated at {full_path}.",
+        "status": 200,
+        "path": full_path,
+        "data": updated_data,
+    })
+    response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
+    return response, 200
+
 @app.route('/<path:subpath>', methods=['GET'])
 async def handle_api_request(subpath):
     start_time = time.time()  # Käivitame stopperi
@@ -636,7 +756,7 @@ async def handle_api_request(subpath):
     response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
     return response, 200
 
-@app.route('/<path:subpath>', methods=['PUT', 'PATCH', 'HEAD', 'OPTIONS'])
+@app.route('/<path:subpath>', methods=['PATCH', 'HEAD', 'OPTIONS'])
 def unsupported_method(subpath):
     full_path = "/" + subpath.strip('/')
     return jsonify({
@@ -644,7 +764,7 @@ def unsupported_method(subpath):
         "message": f"HTTP method not supported for this endpoint.",
         "status": 405,
         "path": full_path,
-        "allowed_methods": ["GET", "POST", "DELETE"],
+        "allowed_methods": ["GET", "POST", "PUT", "DELETE"],
     }), 405
 
 if __name__ == '__main__':
