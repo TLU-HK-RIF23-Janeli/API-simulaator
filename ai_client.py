@@ -24,7 +24,7 @@ else:
 BASE_INSTRUCTIONS = (
     "You are a fast REST API mock server. Return only valid JSON.\n"
     "Rules:\n"
-    "1. If it is a list, provide exactly 5 items.\n"
+    "1. If it is a list and no count is requested, provide exactly 5 items.\n"
     "2. Keep metadata minimal.\n"
     "3. Resource ID must always be a unique integer. "
     "For example, if the path is /posts, generate posts with IDs 1, 2, 3, etc.\n"
@@ -63,7 +63,7 @@ def _extract_response_text(response):
                 return text_value
     return None
 
-async def get_ai_content(path, parent_path=None, parent_data=None, expected_schema=None):
+async def get_ai_content(path, parent_path=None, parent_data=None, expected_schema=None, requested_count=None):
     """
     Requests JSON content from the AI based on the provided URL path.
     """
@@ -91,10 +91,18 @@ async def get_ai_content(path, parent_path=None, parent_data=None, expected_sche
             "Do not invent new column names.\n"
         )
 
+    count_block = ""
+    if requested_count is not None:
+        count_block = (
+            f"If this endpoint returns a list, generate exactly {requested_count} new items. "
+            "Do not repeat items already present in the context.\n"
+        )
+
     user_input = (
         f"Generate a realistic JSON response for path: {path}.\n"
         f"{context_block}"
         f"{schema_block}"
+        f"{count_block}"
     )
 
     try:

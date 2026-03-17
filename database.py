@@ -49,14 +49,27 @@ def get_existing_schema_for_path(path):
         conn.close()
 
 
-def validate_payload_against_existing_schema(path, data):
+def validate_payload_against_existing_schema(path, data, allow_missing_id=False):
     """
     Validates payload record fields against existing table schema for path.
     If schema is not established, validation passes.
+    
+    Checks:
+    1. No unknown columns (not in schema)
+    2. All schema columns present (except system columns: row_id, source_path, created_at, and optionally id)
+    
+    Args:
+        allow_missing_id: If True, id is not required (for user POST operations where id is auto-generated)
     """
     schema_columns = set(get_existing_schema_for_path(path))
     if not schema_columns:
         return True, None
+
+    # System columns don't need to be provided by user
+    system_columns = {"row_id", "source_path", "created_at"}
+    if allow_missing_id:
+        system_columns.add("id")
+    required_columns = schema_columns - system_columns
 
     resource_segment = _resource_segment_for_path(path)
     records = _extract_records(data, resource_segment=resource_segment)
@@ -68,12 +81,25 @@ def validate_payload_against_existing_schema(path, data):
             continue
 
         record_columns = {_sanitize_identifier(str(key)) for key in record.keys()}
+        
+        # Check for unknown columns
         unknown_columns = sorted(record_columns - schema_columns)
         if unknown_columns:
             return False, {
                 "path": path,
                 "schema_columns": sorted(schema_columns),
                 "unknown_columns": unknown_columns,
+                "record_index": idx,
+            }
+        
+        # Check for missing required columns
+        missing_columns = sorted(required_columns - record_columns)
+        if missing_columns:
+            return False, {
+                "path": path,
+                "schema_columns": sorted(schema_columns),
+                "missing_columns": missing_columns,
+                "required_columns": sorted(required_columns),
                 "record_index": idx,
             }
 
@@ -244,6 +270,34 @@ def _parent_pairs_for_path(path):
 
     return parent_pairs
 
+
+def _blacklisted_numeric_ids(cursor, table_name):
+    """Returns numeric IDs that are blacklisted for a given resource table."""
+    if not _table_exists(cursor, "blacklist"):
+        return set()
+
+    cursor.execute('SELECT "path" FROM "blacklist"')
+    blocked_ids = set()
+    for row in cursor.fetchall():
+        path = row[0]
+        if not isinstance(path, str):
+            continue
+
+        parts = [p for p in path.split("/") if p]
+        if len(parts) < 2 or not parts[-1].isdigit():
+            continue
+
+        resource_segment = _resource_segment_for_path(path)
+        if _sanitize_identifier(resource_segment) != table_name:
+            continue
+
+        try:
+            blocked_ids.add(int(parts[-1]))
+        except ValueError:
+            continue
+
+    return blocked_ids
+
 def _existing_numeric_ids(cursor, table_name, exclude_source_path=None):
     """Returns integer IDs already used in a dynamic table."""
     if not _table_exists(cursor, table_name):
@@ -267,6 +321,9 @@ def _existing_numeric_ids(cursor, table_name, exclude_source_path=None):
             existing_ids.add(int(value))
         except (TypeError, ValueError):
             continue
+
+    # Never reuse IDs that are explicitly blacklisted/deleted.
+    existing_ids.update(_blacklisted_numeric_ids(cursor, table_name))
 
     return existing_ids
 
@@ -342,6 +399,82 @@ def init_db():
     conn.commit()
     conn.close()
     print("Simple cache database initialized.")
+
+def save_user_resource(path, data):
+    """
+    Saves a user-submitted resource (POST) to a collection.
+    Unlike save_structured_resource (for AI), this APPENDS a new item instead of replacing.
+    Auto-generates ID if not present, respects existing schema.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    # For user POST, ensure data is dict (single item), not a list
+    if isinstance(data, list):
+        data = data[0] if data else {}
+    
+    if not isinstance(data, dict):
+        conn.close()
+        return {"error": "Invalid data type"}
+
+    # Auto-generate ID if not provided
+    table_name = _table_for_path(path)
+    if "id" not in data:
+        existing_ids = _existing_numeric_ids(cursor, table_name, exclude_source_path=None)
+        next_id = max(existing_ids, default=0) + 1
+        data["id"] = next_id
+
+    # Add parent foreign keys if this is a nested path
+    parent_pairs = _parent_pairs_for_path(path)
+    for parent_resource, parent_id in parent_pairs:
+        fk_field = _preferred_fk_field(parent_resource)
+        data[fk_field] = int(parent_id)
+
+    # Ensure table exists and has the necessary columns
+    _ensure_dynamic_table(cursor, table_name)
+    
+    # For POST, we don't delete previous rows like we do for AI refresh
+    # Just insert this new item
+    resource_segment = _resource_segment_for_path(path)
+    records = [data] if isinstance(data, dict) else _extract_records(data, resource_segment=resource_segment)
+    
+    column_names = set()
+    processed_records = []
+
+    for record in records:
+        processed = {}
+        for key, value in record.items():
+            col = _sanitize_identifier(str(key))
+            processed[col] = _to_sql_value(value)
+            column_names.add(col)
+        processed_records.append(processed)
+
+    _ensure_columns(cursor, table_name, sorted(column_names))
+
+    # Insert without deleting previous rows (unlike _insert_dynamic_records)
+    ordered_cols = ["source_path"] + sorted(column_names)
+    placeholders = ", ".join(["?"] * len(ordered_cols))
+    col_sql = ", ".join([f'"{col}"' for col in ordered_cols])
+
+    insert_sql = f'INSERT INTO "{table_name}" ({col_sql}) VALUES ({placeholders})'
+    for record in processed_records:
+        values = [path] + [record.get(col) for col in ordered_cols[1:]]
+        cursor.execute(insert_sql, values)
+
+    # Invalidate collection cache so next GET refreshes
+    cursor.execute("DELETE FROM cached_responses WHERE path = ?", (path,))
+
+    # Save alias for short path access (e.g. /comments/5 for /books/1/comments/5)
+    if "id" in data:
+        alias_path = f"/{resource_segment}/{data['id']}"
+        if alias_path != path:
+            _upsert_cached_payload(cursor, alias_path, data)
+
+    conn.commit()
+    conn.close()
+    print("User resource saved.")
+    return data
+
 
 def save_structured_resource(path, data):
     """Saves the full payload and also writes structured rows into a dynamic table."""
@@ -580,24 +713,40 @@ def is_blacklisted(path):
     """
     Checks if a specific path is present in the blacklist table.
     Returns True if blocked, False otherwise.
+
+    Also checks the short alias path of an item (e.g. /comments/5 for
+    /books/4/comments/5) so that deleting /comments/5 blocks all qualified
+    variants of comment 5 regardless of which parent path is used.
     """
+    parts = [p for p in path.split("/") if p]
+
+    paths_to_check = [path]
+
+    # For nested item paths like /books/4/comments/5 also check /comments/5.
+    if len(parts) >= 4 and parts[-1].isdigit():
+        alias = f"/{parts[-2]}/{parts[-1]}"
+        if alias != path:
+            paths_to_check.append(alias)
+
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    
-    # Block exact path and all descendants of any blacklisted parent path.
-    cursor.execute(
-        """
-        SELECT 1
-        FROM blacklist
-        WHERE path = ? OR ? LIKE path || '/%'
-        LIMIT 1
-        """,
-        (path, path),
-    )
-    result = cursor.fetchone()
-    
-    conn.close()
-    return result is not None
+
+    try:
+        for candidate in paths_to_check:
+            cursor.execute(
+                """
+                SELECT 1
+                FROM blacklist
+                WHERE path = ? OR ? LIKE path || '/%'
+                LIMIT 1
+                """,
+                (candidate, candidate),
+            )
+            if cursor.fetchone() is not None:
+                return True
+        return False
+    finally:
+        conn.close()
 
 def add_to_blacklist(path, reason="No reason provided"):
     """
@@ -737,6 +886,39 @@ def _alias_path_for_item(path):
     resource_segment = _resource_segment_for_path(path)
     return f"/{resource_segment}/{parts[-1]}"
 
+def _collect_qualified_paths_for_alias(cursor, path):
+    """
+    For a short alias path like /comments/2, finds all full qualified paths
+    (e.g. /books/5/comments/2) by looking up source_path in the dynamic table.
+    Only applies to 2-segment item paths (/<resource>/<id>).
+    """
+    parts = [p for p in path.split("/") if p]
+    if len(parts) != 2 or not parts[-1].isdigit():
+        return set()
+
+    table_name = _sanitize_identifier(parts[0])
+    item_id = parts[1]
+
+    if not _table_exists(cursor, table_name):
+        return set()
+
+    columns = _table_columns(cursor, table_name)
+    if "id" not in columns or "source_path" not in columns:
+        return set()
+
+    cursor.execute(
+        f'SELECT source_path FROM "{table_name}" WHERE "id" = ?',
+        (item_id,),
+    )
+    qualified_paths = set()
+    for row in cursor.fetchall():
+        source_path = row[0]
+        if source_path and source_path != path:
+            qualified_paths.add(f"{source_path}/{item_id}")
+
+    return qualified_paths
+
+
 def delete_resource_and_blacklist(path, reason="Deleted by API client"):
     """
     Deletes a resource from cache/dynamic tables and blacklists the path
@@ -752,6 +934,11 @@ def delete_resource_and_blacklist(path, reason="Deleted by API client"):
         direct_alias_path = _alias_path_for_item(path)
         if direct_alias_path and direct_alias_path != path:
             alias_paths.add(direct_alias_path)
+
+        # If this is a short alias (e.g. /comments/2), also blacklist all full
+        # qualified paths for that item (e.g. /books/5/comments/2).
+        qualified_paths = _collect_qualified_paths_for_alias(cursor, path)
+        alias_paths.update(qualified_paths)
 
         collection_paths_to_invalidate = set()
 

@@ -10,19 +10,19 @@ def print_response(label, response):
     print(json.dumps(response.get_json(), ensure_ascii=False, indent=2))
 
 
-@pytest.fixture(scope="session")
-def ordered_test_env(tmp_path_factory):
-    db_path = tmp_path_factory.mktemp("db") / "test_simulator.db"
-
+def _build_test_env(db_path):
     import database
+    import reset_db
 
     database.DB_NAME = str(db_path)
+    reset_db.DB_NAME = str(db_path)
     database.init_db()
 
     import main
 
     main = importlib.reload(main)
     main.database.DB_NAME = str(db_path)
+    main.reset_db.DB_NAME = str(db_path)
     main.database.init_db()
     main.app.config["TESTING"] = True
 
@@ -58,7 +58,7 @@ def ordered_test_env(tmp_path_factory):
 
     books_999_attempts = {"count": 0}
 
-    async def fake_ai(path, parent_path=None, parent_data=None, expected_schema=None):
+    async def fake_ai(path, parent_path=None, parent_data=None, expected_schema=None, requested_count=None):
         if path == "/books":
             return books_payload
         if path == "/books/1/comments":
@@ -108,3 +108,15 @@ def ordered_test_env(tmp_path_factory):
         "book_999_payload": book_999_payload,
         "comments_payload_book_999": comments_payload_book_999,
     }
+
+
+@pytest.fixture(scope="session")
+def ordered_test_env(tmp_path_factory):
+    db_path = tmp_path_factory.mktemp("db") / "test_simulator.db"
+    return _build_test_env(db_path)
+
+
+@pytest.fixture(scope="function")
+def isolated_test_env(tmp_path):
+    db_path = tmp_path / "isolated_test_simulator.db"
+    return _build_test_env(db_path)
