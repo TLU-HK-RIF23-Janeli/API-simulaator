@@ -512,7 +512,7 @@ async def post_resource(subpath):
     response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
     return response, 201
 
-@app.route('/<path:subpath>', methods=['PUT'])
+@app.route('/<path:subpath>', methods=['PATCH'])
 def put_resource(subpath):
     start_time = time.time()
     full_path = "/" + subpath.strip('/')
