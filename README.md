@@ -96,15 +96,15 @@ Reeglid:
 - nested kollektsioonis lisatakse parent foreign key automaatselt (nt book_id)
 - kui schema on juba olemas, peab payload schema'ga sobima
 
-### PUT / item
+### PATCH / item
 Uuendab olemasolevat itemit.
 
 Reeglid:
-- lubatud ainult pathidele, mis loppavad numbriga
+- lubatud ainult pathidele, mis lõpevad numbriga
 - kustutatud (blacklistis) itemit ei saa uuendada (404 RESOURCE_DELETED)
 - payload id peab klappima path id-ga
 - nested puhul peab parent fk klappima pathiga
-- tundmatud valjad annavad 422 SCHEMA_MISMATCH
+- tundmatud väljad annavad 422 SCHEMA_MISMATCH
 
 ### DELETE / item
 Kustutab itemi ja lisab selle blacklisti.
