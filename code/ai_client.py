@@ -20,9 +20,11 @@ else:
     )
     MODEL = "llama3"
 
+API_SPECIFICATION = os.getenv("API_SPECIFICATION", "You are a fast REST API mock server. Return only valid JSON.")
+
 # Keep this block stable across requests so providers can cache the prefix.
 BASE_INSTRUCTIONS = (
-    "You are a fast REST API mock server. Return only valid JSON.\n"
+    f"{API_SPECIFICATION}\n"
     "Rules:\n"
     "1. If it is a list and no count is requested, provide exactly 5 items.\n"
     "2. Keep metadata minimal.\n"
