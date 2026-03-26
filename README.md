@@ -9,6 +9,11 @@ Rakendus toetab:
 - kustutatud ressursside blacklisti (et neid ei genereeritaks uuesti)
 - kollektsioonipäringute limit parameetrit
 
+## Käivitamine Dockeri konteineris
+- Loo .env fail näidise põhjal
+- ```docker build -t ai-simulaator .```
+- ```docker run -p 5000:5000 --env-file .env ai-simulaator```
+
 ## Tehniline stack
 - Flask 3 (async route toega)
 - OpenAI Python SDK (AsyncOpenAI)
