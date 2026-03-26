@@ -11,8 +11,12 @@ Rakendus toetab:
 
 ## Käivitamine Dockeri konteineris
 - Loo .env fail näidise põhjal
-- ```docker build -t ai-simulaator .```
-- ```docker run -p 5000:5000 --env-file .env ai-simulaator```
+- ```bash
+  docker build -t ai-simulaator .
+  ```
+- ```bash
+  docker run -p 5000:5000 --env-file .env ai-simulaator
+  ```
 
 ## Tehniline stack
 - Flask 3 (async route toega)
