@@ -622,7 +622,7 @@ def put_resource(subpath):
 
 @app.route('/<path:subpath>', methods=['GET'])
 async def handle_api_request(subpath):
-    start_time = time.time()  # Käivitame stopperi
+    start_time = time.time()  # Start measuring time at the beginning of the request handling
     full_path = "/" + subpath.strip('/')
 
     # Block known deleted/forbidden paths before any cache/table/AI lookup.
@@ -652,7 +652,7 @@ async def handle_api_request(subpath):
     if requested_limit is not None:
         return await _handle_collection_limit_request(full_path, requested_limit, start_time)
 
-    # 1. Otsime andmebaasist
+    # 1. Search in cache first for an exact path match (fastest).
     existing_data = database.get_resource_by_path(full_path)
     
     if existing_data is not None:
@@ -722,7 +722,7 @@ async def handle_api_request(subpath):
             response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
             return response, 404
 
-    # 2. Kui pole andmebaasis, siis AI
+    # 2. If no data found, call AI generator to create/generate the content (slow).
     print(f"CACHE MISS: {full_path} läheb AI-le...")
     parent_path, parent_data = _find_parent_context(full_path)
     if parent_data is not None:
@@ -756,7 +756,7 @@ async def handle_api_request(subpath):
     response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
     return response, 200
 
-@app.route('/<path:subpath>', methods=['PATCH', 'HEAD', 'OPTIONS'])
+@app.route('/<path:subpath>', methods=['PUT', 'HEAD', 'OPTIONS'])
 def unsupported_method(subpath):
     full_path = "/" + subpath.strip('/')
     return jsonify({
