@@ -756,7 +756,7 @@ async def handle_api_request(subpath):
     response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
     return response, 200
 
-@app.route('/<path:subpath>', methods=['PATCH', 'HEAD', 'OPTIONS'])
+@app.route('/<path:subpath>', methods=['PUT', 'HEAD', 'OPTIONS'])
 def unsupported_method(subpath):
     full_path = "/" + subpath.strip('/')
     return jsonify({
