@@ -754,8 +754,8 @@ def get_dynamic_resource_by_path(path):
         else:
             i += 1
 
-    id_clause = None
-    id_params = []
+    id_clause = None # goes to SQLite query as a filter for the item ID (e.g. "id = ?")
+    id_params = []  # parameters for the ID filter (e.g. [123])
     if item_id is not None:
         if "id" in columns:
             id_clause = '"id" = ?'

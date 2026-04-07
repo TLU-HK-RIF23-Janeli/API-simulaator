@@ -513,7 +513,7 @@ async def post_resource(subpath):
     return response, 201
 
 @app.route('/<path:subpath>', methods=['PATCH'])
-def put_resource(subpath):
+def patch_resource(subpath):
     start_time = time.time()
     full_path = "/" + subpath.strip('/')
     parts = [p for p in full_path.split('/') if p]
@@ -622,7 +622,7 @@ def put_resource(subpath):
 
 @app.route('/<path:subpath>', methods=['GET'])
 async def handle_api_request(subpath):
-    start_time = time.time()  # Käivitame stopperi
+    start_time = time.time()  # Start the timer
     full_path = "/" + subpath.strip('/')
 
     # Block known deleted/forbidden paths before any cache/table/AI lookup.
@@ -652,15 +652,15 @@ async def handle_api_request(subpath):
     if requested_limit is not None:
         return await _handle_collection_limit_request(full_path, requested_limit, start_time)
 
-    # 1. Otsime andmebaasist
+    # 1. Search from the database
     existing_data = database.get_resource_by_path(full_path)
     
     if existing_data is not None:
         existing_data = _normalize_public_response(existing_data)
-        duration = (time.time() - start_time) * 1000  # Arvutame kestuse millisekundites
+        duration = (time.time() - start_time) * 1000  # Calculate duration in milliseconds
         print(f"CACHE HIT: {full_path} kätte saadud {duration:.2f} ms-ga.")
         
-        # Lisame vastuse päisesse (header), et näha seda ka brauseris/inspektoris
+        # Add the response time to headers for observability
         response = jsonify(existing_data)
         response.headers['X-Response-Time-MS'] = f"{duration:.2f}"
         return response, 200
@@ -722,7 +722,7 @@ async def handle_api_request(subpath):
             response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
             return response, 404
 
-    # 2. Kui pole andmebaasis, siis AI
+    # 2. If no data found from  the database, generate with AI
     print(f"CACHE MISS: {full_path} läheb AI-le...")
     parent_path, parent_data = _find_parent_context(full_path)
     if parent_data is not None:
@@ -749,7 +749,7 @@ async def handle_api_request(subpath):
     if "error" not in new_data:
         new_data = database.save_structured_resource(full_path, new_data)
     
-    duration = time.time() - start_time  # AI puhul mõõdame pigem sekundites
+    duration = time.time() - start_time  # AI time + any DB save time in second
     print(f"AI GENERAATOR: Valmis {duration:.2f} sekundiga.")
     
     response = jsonify(new_data)
