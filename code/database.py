@@ -46,6 +46,45 @@ def get_existing_schema_for_path(path):
     finally:
         conn.close()
 
+def normalize_schema_columns(columns):
+    """
+    Normalizes a raw list of column names to safe SQLite identifiers.
+    Returns unique columns while preserving input order.
+    """
+    if not columns:
+        return []
+
+    normalized = []
+    seen = set()
+    for column in columns:
+        if not isinstance(column, str):
+            continue
+        cleaned = _sanitize_identifier(column)
+        if cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized.append(cleaned)
+
+    return normalized
+
+def set_expected_schema_for_path(path, columns):
+    """
+    Persists expected schema columns for a resource path's table, even when
+    no rows exist yet. Returns resulting data columns for the table.
+    """
+    table_name = _table_for_path(path)
+    normalized_columns = normalize_schema_columns(columns)
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        _ensure_dynamic_table(cursor, table_name)
+        _ensure_columns(cursor, table_name, normalized_columns)
+        conn.commit()
+        return _data_columns_for_table(cursor, table_name)
+    finally:
+        conn.close()
+
 def validate_payload_against_existing_schema(path, data, allow_missing_id=False):
     """
     Validates payload record fields against existing table schema for path.

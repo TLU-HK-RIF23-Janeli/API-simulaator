@@ -284,7 +284,80 @@ def _parse_limit_or_error(limit_raw, full_path):
     return parsed, None
 
 
-async def _handle_collection_limit_request(full_path, requested_limit, start_time):
+def _parse_user_schema_or_error(full_path):
+    """
+    Parses optional user-provided schema from GET query params.
+    Supported forms:
+    - ?schema=title,author
+    - ?schema=title&schema=author
+    """
+    schema_values = request.args.getlist("schema")
+    if not schema_values:
+        return None, None
+
+    raw_columns = []
+    for value in schema_values:
+        if value is None:
+            continue
+        parts = [part.strip() for part in str(value).split(",")]
+        raw_columns.extend([part for part in parts if part])
+
+    normalized = database.normalize_schema_columns(raw_columns)
+    if not normalized:
+        return None, (
+            jsonify({
+                "error": "BAD_REQUEST",
+                "message": "Query parameter 'schema' must include at least one column name.",
+                "status": 400,
+                "path": full_path,
+            }),
+            400,
+        )
+
+    # Keep stable required fields in first-generation schema constraints.
+    if "id" not in normalized:
+        normalized.insert(0, "id")
+
+    for parent_resource, _ in _parent_pairs_for_path(full_path):
+        fk_field = _preferred_fk_field(parent_resource)
+        if fk_field not in normalized:
+            normalized.append(fk_field)
+
+    return normalized, None
+
+
+def _resolve_expected_schema_or_error(path, user_schema):
+    """
+    Resolves schema used for AI generation.
+    Precedence: existing DB schema -> user schema (first generation only) -> empty.
+    """
+    existing_schema = database.get_existing_schema_for_path(path)
+    if existing_schema:
+        if user_schema:
+            if set(existing_schema) != set(user_schema):
+                return None, (
+                    jsonify({
+                        "error": "SCHEMA_CONFLICT",
+                        "message": "Provided schema conflicts with the existing resource schema.",
+                        "status": 409,
+                        "path": path,
+                        "details": {
+                            "existing_schema": existing_schema,
+                            "provided_schema": user_schema,
+                        },
+                    }),
+                    409,
+                )
+        return existing_schema, None
+
+    if user_schema:
+        persisted_schema = database.set_expected_schema_for_path(path, user_schema)
+        return persisted_schema, None
+
+    return [], None
+
+
+async def _handle_collection_limit_request(full_path, requested_limit, start_time, user_expected_schema=None):
     # Ensure nested parent exists for endpoints like /books/2/comments?limit=7
     parent_item_path = _parent_item_path_for_nested_collection(full_path)
     if parent_item_path and not _resource_exists(parent_item_path):
@@ -333,7 +406,9 @@ async def _handle_collection_limit_request(full_path, requested_limit, start_tim
     missing_count = requested_limit - len(current_items)
     if missing_count > 0:
         parent_path, parent_data = _find_parent_context(full_path)
-        expected_schema = database.get_existing_schema_for_path(full_path)
+        expected_schema, schema_error = _resolve_expected_schema_or_error(full_path, user_expected_schema)
+        if schema_error is not None:
+            return schema_error
 
         generation_context = {
             "existing_items": current_items,
@@ -649,8 +724,18 @@ async def handle_api_request(subpath):
     requested_limit, limit_error = _parse_limit_or_error(limit_raw, full_path)
     if limit_error is not None:
         return limit_error
+
+    user_expected_schema, schema_parse_error = _parse_user_schema_or_error(full_path)
+    if schema_parse_error is not None:
+        return schema_parse_error
+
     if requested_limit is not None:
-        return await _handle_collection_limit_request(full_path, requested_limit, start_time)
+        return await _handle_collection_limit_request(
+            full_path,
+            requested_limit,
+            start_time,
+            user_expected_schema=user_expected_schema,
+        )
 
     # 1. Search from the database
     existing_data = database.get_resource_by_path(full_path)
@@ -728,7 +813,9 @@ async def handle_api_request(subpath):
     if parent_data is not None:
         print(f"PARENT CONTEXT FOUND: {parent_path}")
 
-    expected_schema = database.get_existing_schema_for_path(full_path)
+    expected_schema, schema_error = _resolve_expected_schema_or_error(full_path, user_expected_schema)
+    if schema_error is not None:
+        return schema_error
     print(f"EXISTING SCHEMA for {full_path}: {expected_schema}")
 
     new_data = await ai_client.get_ai_content(
@@ -742,7 +829,11 @@ async def handle_api_request(subpath):
         new_data = _normalize_ai_payload_for_path(full_path, new_data)
 
     if "error" not in new_data:
-        is_valid, mismatch_details = database.validate_payload_against_existing_schema(full_path, new_data)
+        is_valid, mismatch_details = database.validate_payload_against_existing_schema(
+            full_path,
+            new_data,
+            allow_missing_id=_is_collection_path(full_path),
+        )
         if not is_valid:
             duration = time.time() - start_time
             return _schema_validation_error_response(mismatch_details, duration)

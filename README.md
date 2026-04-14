@@ -85,6 +85,12 @@ Oluline:
 - kui path on blacklistis, tagastatakse 404 RESOURCE_DELETED
 - nested collection puhul (nt /books/999/comments) genereeritakse parent ressurss tehisintellekti poolt automaatselt
 - andmestruktuuri vastuolu korral tagastatakse 422 SCHEMA_MISMATCH
+- kui tegemist on esimese genereerimisega, saab kasutaja anda schema query-parameetriga ette oodatud väljad
+
+Schema query-parameeter (esimene genereerimine):
+- `GET /movies?schema=title,genre`
+- `GET /movies?schema=title&schema=genre`
+- kui tabeli schema on juba olemas ja antud schema erineb olemasolevast, tagastatakse 409 SCHEMA_CONFLICT
 
 ### GET / collection?limit=N
 Toetatud ainult kollektsioonidel (path ei tohi lõppeda numbriga).
