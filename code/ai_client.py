@@ -138,6 +138,7 @@ async def get_ai_content(path, parent_path=None, parent_data=None, expected_sche
         if not content:
             raise ValueError("Responses API returned no text output")
 
+        print(user_input)
         print("[AI] Raw response text start")
         print(content)
         print("[AI] Raw response text end")

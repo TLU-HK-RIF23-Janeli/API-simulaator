@@ -27,11 +27,9 @@ def _table_for_path(path):
     resource = _resource_segment_for_path(path)
     return _sanitize_identifier(resource)
 
-
 def _data_columns_for_table(cursor, table_name):
     system_columns = {"row_id", "source_path", "created_at"}
     return [col for col in _table_columns(cursor, table_name) if col not in system_columns]
-
 
 def get_existing_schema_for_path(path):
     """
@@ -47,7 +45,6 @@ def get_existing_schema_for_path(path):
         return _data_columns_for_table(cursor, table_name)
     finally:
         conn.close()
-
 
 def validate_payload_against_existing_schema(path, data, allow_missing_id=False):
     """
@@ -269,7 +266,6 @@ def _parent_pairs_for_path(path):
             index += 1
 
     return parent_pairs
-
 
 def _blacklisted_numeric_ids(cursor, table_name):
     """Returns numeric IDs that are blacklisted for a given resource table."""
@@ -652,7 +648,6 @@ def update_user_resource(path, data):
         return {"error": str(e)}
     finally:
         conn.close()
-
 
 def save_structured_resource(path, data):
     """Saves the full payload and also writes structured rows into a dynamic table."""
@@ -1095,7 +1090,6 @@ def _collect_qualified_paths_for_alias(cursor, path):
             qualified_paths.add(f"{source_path}/{item_id}")
 
     return qualified_paths
-
 
 def delete_resource_and_blacklist(path, reason="Deleted by API client"):
     """

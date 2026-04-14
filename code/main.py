@@ -37,7 +37,7 @@ def _parent_item_path_for_nested_collection(path):
 def _find_parent_context(path):
     """Finds the nearest parent path that already exists in cache or dynamic tables."""
     parts = [p for p in path.split('/') if p]
-    if len(parts) < 2:
+    if len(parts) < 3:
         return None, None
 
     # Trim from right to left: /a/b/c -> /a/b -> /a
@@ -729,6 +729,7 @@ async def handle_api_request(subpath):
         print(f"PARENT CONTEXT FOUND: {parent_path}")
 
     expected_schema = database.get_existing_schema_for_path(full_path)
+    print(f"EXISTING SCHEMA for {full_path}: {expected_schema}")
 
     new_data = await ai_client.get_ai_content(
         full_path,
