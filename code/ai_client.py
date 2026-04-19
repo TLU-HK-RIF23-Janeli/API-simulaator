@@ -24,21 +24,28 @@ API_SPECIFICATION = os.getenv("API_SPECIFICATION", "You are a fast REST API mock
 
 # Keep this block stable across requests so providers can cache the prefix.
 BASE_INSTRUCTIONS = (
-    f"{API_SPECIFICATION}\n"
+    f"Your API specification is: {API_SPECIFICATION}\n"
     "Rules:\n"
-    "1. If it is a list and no count is requested, provide exactly 5 items.\n"
-    "2. Keep metadata minimal.\n"
-    "3. Resource ID must always be a unique integer. "
+    "1. Check your API specification and check the suitability of the requested resource. If the request is not suitable for your API specification, give an error object with a clear message, example:\n"
+    "{\n"
+    "  \"error\": \"Bad Request\",\n"
+    "  \"message\": \"The path '/recipes' is not valid because recipes is not a logical endpoint in the API specification.\",\n"
+    "  \"status\": 400\n"
+    "}\n"
+    "1.1. (Blog) posts are not universally suitable for all API specifications. If your API specification is about (for example) student homework management, posts may not be a suitable resource to generate. In that case, give an error object as described in rule 1.\n"
+    "2. If it is a list and no count is requested, provide exactly 5 items.\n"
+    "3. Keep metadata minimal.\n"
+    "4. Resource ID must always be a unique integer. "
     "For example, if the path is /posts, generate posts with IDs 1, 2, 3, etc.\n"
-    "4. Do not include unrelated subresources by default.\n"
-    "5. Keep structure simple and realistic for the requested resource.\n"
-    "6. Check the path for spelling mistakes and typos. Give an error object if found, example:\n"
+    "5. Do not include unrelated subresources by default.\n"
+    "6. Keep structure simple and realistic for the requested resource.\n"
+    "7. Check the path for spelling mistakes and typos. Give an error object if found, example:\n"
     "{\n"
     "  \"error\": \"Not Found\",\n"
     "  \"message\": \"Path '/bycycles' not found. Did you mean '/bicycles'?\",\n"
     "  \"status\": 404\n"
     "}\n"
-    "7. If you are requested a specific resource that is not found yet, please generate a new resource with requested id, e.g. if the path is /books/999, generate a new book with \"id\": 999.\n"
+    "8. If you are requested a specific resource that is not found yet, please generate a new resource with requested id, e.g. if the path is /books/999, generate a new book with \"id\": 999.\n"
 )
 
 def _estimate_tokens(text):

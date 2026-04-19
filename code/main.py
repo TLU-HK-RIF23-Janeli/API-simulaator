@@ -512,9 +512,7 @@ def delete_resource(subpath):
         }), 200
 
     # Do not blacklist item paths that never existed.
-    existing_data = database.get_resource_by_path(full_path)
-    if existing_data is None:
-        existing_data = database.get_dynamic_resource_by_path(full_path)
+    existing_data = database.get_dynamic_resource_by_path(full_path)
     if existing_data is None:
         return jsonify({
             "error": "NOT_FOUND",
@@ -619,8 +617,6 @@ def patch_resource(subpath):
         }), 400
 
     existing_data = database.get_dynamic_resource_by_path(full_path)
-    if existing_data is None:
-        existing_data = database.get_resource_by_path(full_path)
     if existing_data is None:
         return jsonify({
             "error": "NOT_FOUND",
@@ -736,21 +732,23 @@ async def handle_api_request(subpath):
             start_time,
             user_expected_schema=user_expected_schema,
         )
+    
+    if user_expected_schema is not None:
+        existing_schema = database.get_existing_schema_for_path(full_path)
+        if existing_schema and set(existing_schema) != set(user_expected_schema):
+            duration = (time.time() - start_time) * 1000
+            return jsonify({
+                "error": "SCHEMA_CONFLICT",
+                "message": "Provided schema conflicts with the existing resource schema.",
+                "status": 409,
+                "path": full_path,
+                "details": {
+                    "existing_schema": existing_schema,
+                    "provided_schema": user_expected_schema,
+                },
+            }), 409
 
     # 1. Search from the database
-    existing_data = database.get_resource_by_path(full_path)
-    
-    if existing_data is not None:
-        existing_data = _normalize_public_response(existing_data)
-        duration = (time.time() - start_time) * 1000  # Calculate duration in milliseconds
-        print(f"CACHE HIT: {full_path} kätte saadud {duration:.2f} ms-ga.")
-        
-        # Add the response time to headers for observability
-        response = jsonify(existing_data)
-        response.headers['X-Response-Time-MS'] = f"{duration:.2f}"
-        return response, 200
-
-    # 1.5. If exact cache miss, check dynamic tables (e.g. /books, /books/123)
     dynamic_data = database.get_dynamic_resource_by_path(full_path)
     if dynamic_data is not None:
         dynamic_data = _normalize_public_response(dynamic_data)
@@ -808,7 +806,7 @@ async def handle_api_request(subpath):
             return response, 404
 
     # 2. If no data found from  the database, generate with AI
-    print(f"CACHE MISS: {full_path} läheb AI-le...")
+    print(f"DATABASE MISS: {full_path} läheb AI-le...")
     parent_path, parent_data = _find_parent_context(full_path)
     if parent_data is not None:
         print(f"PARENT CONTEXT FOUND: {parent_path}")

@@ -141,18 +141,6 @@ def validate_payload_against_existing_schema(path, data, allow_missing_id=False)
 
     return True, None
 
-def _upsert_cached_payload(cursor, path, data):
-    payload = json.dumps(data, ensure_ascii=False)
-    cursor.execute(
-        """
-        INSERT INTO cached_responses (path, payload, updated_at)
-        VALUES (?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(path) DO UPDATE SET
-            payload = excluded.payload,
-            updated_at = CURRENT_TIMESTAMP
-        """,
-        (path, payload),
-    )
 
 def _extract_records(data, resource_segment=None):
     """
@@ -610,15 +598,6 @@ def save_user_resource(path, data):
         values = [path] + [record.get(col) for col in ordered_cols[1:]]
         cursor.execute(insert_sql, values)
 
-    # Invalidate collection cache so next GET refreshes
-    cursor.execute("DELETE FROM cached_responses WHERE path = ?", (path,))
-
-    # Save alias for short path access (e.g. /comments/5 for /books/1/comments/5)
-    if "id" in data:
-        alias_path = f"/{resource_segment}/{data['id']}"
-        if alias_path != path:
-            _upsert_cached_payload(cursor, alias_path, data)
-
     conn.commit()
     conn.close()
     print("User resource saved.")
@@ -673,9 +652,6 @@ def update_user_resource(path, data):
         updated_row = dict(existing_row)
         updated_row.update(data)
 
-        for item_path in _item_paths_for_dynamic_row(path, updated_row):
-            _upsert_cached_payload(cursor, item_path, data)
-
         for collection_path in _collection_paths_for_dynamic_row(path, updated_row):
             cursor.execute("DELETE FROM cached_responses WHERE path = ?", (collection_path,))
 
@@ -695,8 +671,6 @@ def save_structured_resource(path, data):
 
     data = _normalize_generated_data(cursor, path, data)
 
-    _upsert_cached_payload(cursor, path, data)
-
     # Additionally store structured records into a table based on the path root.
     table_name = _table_for_path(path)
     resource_segment = _resource_segment_for_path(path)
@@ -711,36 +685,10 @@ def save_structured_resource(path, data):
         collection_path = "/" + "/".join(parts[:-1])
         cursor.execute("DELETE FROM cached_responses WHERE path = ?", (collection_path,))
 
-        alias_path = f"/{resource_segment}/{parts[-1]}"
-        if alias_path != path:
-            _upsert_cached_payload(cursor, alias_path, data)
-    else:
-        for record in records:
-            if "id" in record and isinstance(record["id"], (str, int)):
-                alias_path = f"/{resource_segment}/{record['id']}"
-                _upsert_cached_payload(cursor, alias_path, record)
-
     conn.commit()
     conn.close()
     print("Resource saved.")
     return data
-
-def get_resource_by_path(path):
-    """Returns parsed JSON payload for path, or None if missing/invalid."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT payload FROM cached_responses WHERE path = ?", (path,))
-    row = cursor.fetchone()
-    conn.close()
-
-    if not row:
-        return None
-
-    try:
-        return json.loads(row[0])
-    except (TypeError, json.JSONDecodeError):
-        return None
 
 def get_dynamic_resource_by_path(path):
     """
