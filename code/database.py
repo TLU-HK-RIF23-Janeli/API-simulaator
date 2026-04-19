@@ -28,7 +28,7 @@ def _table_for_path(path):
     return _sanitize_identifier(resource)
 
 def _data_columns_for_table(cursor, table_name):
-    system_columns = {"row_id", "source_path", "created_at"}
+    system_columns = {"row_id", "source_path"}
     return [col for col in _table_columns(cursor, table_name) if col not in system_columns]
 
 def get_existing_schema_for_path(path):

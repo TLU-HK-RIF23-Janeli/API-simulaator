@@ -8,14 +8,21 @@ import reset_db
 app = Flask(__name__)
 app.json.sort_keys = False  # Preserve the order of JSON keys as they are defined in the database
 
+# =============== CORS FIX (lisa siia) ===============
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PATCH, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    return response
+# ====================================================
+
 # On startup, initialize the database
 database.init_db()
 
 
 def _resource_exists(path):
-    data = database.get_resource_by_path(path)
-    if data is not None:
-        return True
     data = database.get_dynamic_resource_by_path(path)
     return data is not None
 
@@ -44,9 +51,7 @@ def _find_parent_context(path):
     for i in range(len(parts) - 1, 0, -1):
         candidate = "/" + "/".join(parts[:i])
 
-        data = database.get_resource_by_path(candidate)
-        if data is None:
-            data = database.get_dynamic_resource_by_path(candidate)
+        data = database.get_dynamic_resource_by_path(candidate)
 
         if data is not None:
             return candidate, data
@@ -202,19 +207,21 @@ def _schema_validation_error_response(details, duration_seconds):
         "details": details,
     })
     response.headers['X-Response-Time-Seconds'] = f"{duration_seconds:.2f}"
+    print(response.get_json())
     return response, 422
 
 
 def _conflict_response(full_path, message, details=None):
-    payload = {
+    response = jsonify({
         "error": "CONFLICT",
         "message": message,
         "status": 409,
         "path": full_path,
-    }
+    })
+    print(response.get_json())
     if details is not None:
-        payload["details"] = details
-    return jsonify(payload), 409
+        response.get_json()["details"] = details
+    return response, 409
 
 
 def _is_collection_path(path):
@@ -335,19 +342,19 @@ def _resolve_expected_schema_or_error(path, user_schema):
     if existing_schema:
         if user_schema:
             if set(existing_schema) != set(user_schema):
-                return None, (
-                    jsonify({
-                        "error": "SCHEMA_CONFLICT",
-                        "message": "Provided schema conflicts with the existing resource schema.",
-                        "status": 409,
-                        "path": path,
-                        "details": {
-                            "existing_schema": existing_schema,
-                            "provided_schema": user_schema,
-                        },
-                    }),
-                    409,
-                )
+                message = jsonify({
+                    "error": "SCHEMA_CONFLICT",
+                    "message": "Provided schema conflicts with the existing resource schema.",
+                    "status": 409,
+                    "path": path,
+                    "details": {
+                        "existing_schema": existing_schema,
+                        "provided_schema": user_schema,
+                    },
+                })
+                print(message.get_json())
+
+                return message, 409
         return existing_schema, None
 
     if user_schema:
@@ -397,8 +404,6 @@ async def _handle_collection_limit_request(full_path, requested_limit, start_tim
 
     # Build current collection state from table first, then cache fallback.
     current_data = database.get_dynamic_resource_by_path(full_path)
-    if current_data is None:
-        current_data = database.get_resource_by_path(full_path)
 
     current_data = _normalize_public_response(current_data) if current_data is not None else []
     current_items = _extract_collection_items(full_path, current_data)
@@ -737,7 +742,7 @@ async def handle_api_request(subpath):
         existing_schema = database.get_existing_schema_for_path(full_path)
         if existing_schema and set(existing_schema) != set(user_expected_schema):
             duration = (time.time() - start_time) * 1000
-            return jsonify({
+            response = jsonify({
                 "error": "SCHEMA_CONFLICT",
                 "message": "Provided schema conflicts with the existing resource schema.",
                 "status": 409,
@@ -746,7 +751,9 @@ async def handle_api_request(subpath):
                     "existing_schema": existing_schema,
                     "provided_schema": user_expected_schema,
                 },
-            }), 409
+            })
+            print(response.get_json())
+            return response, 409
 
     # 1. Search from the database
     dynamic_data = database.get_dynamic_resource_by_path(full_path)
