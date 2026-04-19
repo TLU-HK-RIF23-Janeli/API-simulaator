@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="et">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kodutööde keskkond • Test</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .modal { animation: modalPop 0.3s ease-out; }
+    @keyframes modalPop { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100">
+
+  <div id="loading-overlay" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-[9999]">
+    <div class="flex flex-col items-center">
+      <i class="fa-solid fa-spinner fa-spin text-5xl text-violet-400"></i>
+      <p class="mt-6 text-white text-lg">Laen andmeid AI-simulaatorist...</p>
+    </div>
+  </div>
+
+  <div class="flex h-screen">
+    <!-- Sidebar -->
+    <div class="w-64 bg-gray-900 p-6 flex flex-col">
+      <div class="flex items-center gap-3 mb-10">
+        <i class="fa-solid fa-graduation-cap text-3xl text-violet-400"></i>
+        <h1 class="text-2xl font-bold">Kodutööd</h1>
+      </div>
+
+      <nav class="space-y-1 flex-1">
+        <a onclick="showView('dashboard')" class="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-gray-800 cursor-pointer">Avaleht</a>
+        <a onclick="showView('assignments')" class="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-gray-800 cursor-pointer">Minu ülesanded</a>
+        <a onclick="showView('tags')" class="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-gray-800 cursor-pointer">Tag'id</a>
+        <a onclick="showView('comments')" class="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-gray-800 cursor-pointer">Kommentaarid</a>
+      </nav>
+
+      <button onclick="resetDatabase()" class="mt-auto flex items-center justify-center gap-2 text-red-400 hover:text-red-300 py-3">
+        <i class="fa-solid fa-trash"></i> Kustuta kogu simulaator
+      </button>
+    </div>
+
+    <!-- Main content -->
+    <div class="flex-1 overflow-auto">
+      <div class="bg-gray-900 border-b border-gray-800 px-8 py-5 flex justify-between sticky top-0 z-10">
+        <h2 id="page-title" class="text-2xl font-semibold">Avaleht</h2>
+        <div onclick="switchUser()" class="flex items-center gap-3 cursor-pointer">
+          <div class="text-right">
+            <p id="user-name" class="font-medium">Anna Tamm</p>
+            <p id="user-role" class="text-xs text-gray-400">Student • ID: 1</p>
+          </div>
+          <i class="fa-solid fa-user-circle text-3xl text-violet-400"></i>
+        </div>
+      </div>
+
+      <div id="view-dashboard" class="p-8"></div>
+      <div id="view-assignments" class="p-8 hidden"></div>
+      <div id="view-tags" class="p-8 hidden"></div>
+      <div id="view-comments" class="p-8 hidden"></div>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal" onclick="if(event.target===this)hideModal()" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div onclick="event.stopImmediatePropagation()" class="modal bg-gray-900 w-full max-w-2xl mx-4 rounded-3xl p-8">
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <!-- Create modal -->
+  <div id="create-modal" onclick="if(event.target===this)hideCreateModal()" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div onclick="event.stopImmediatePropagation()" class="modal bg-gray-900 w-full max-w-lg mx-4 rounded-3xl p-8">
+      <h3 class="text-xl font-semibold mb-6">Uus ülesanne</h3>
+      <form id="create-form" onsubmit="submitNewAssignment(event)">
+        <input id="form-title" required placeholder="Pealkiri" class="w-full bg-gray-800 rounded-2xl px-5 py-4 mb-4">
+        <input id="form-deadline" type="date" class="w-full bg-gray-800 rounded-2xl px-5 py-4 mb-4">
+        <select id="form-status" class="w-full bg-gray-800 rounded-2xl px-5 py-4 mb-4">
+          <option value="pending">Ootel</option>
+          <option value="in_progress">Tegelen</option>
+          <option value="done">Lõpetatud</option>
+        </select>
+        <textarea id="form-description" rows="5" placeholder="Sisu / kirjeldus..." class="w-full bg-gray-800 rounded-3xl px-5 py-4"></textarea>
+        <div class="flex gap-3 mt-8">
+          <button type="button" onclick="hideCreateModal()" class="flex-1 py-4 border border-gray-700 rounded-3xl">Tühista</button>
+          <button type="submit" class="flex-1 py-4 bg-violet-600 hover:bg-violet-700 rounded-3xl">Loo ülesanne</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const SCHEMAS = {
+      assignments: "id,title,deadline,status,description,created_at",
+      comments:    "id,content,created_at,assignment_id,user_id"
+    };
+
+    let currentUser = { id: 1, name: "Anna Tamm", role: "student" };
+    let currentAssignment = null;
+    const API = "http://localhost:5000";
+
+    function showLoading() { document.getElementById("loading-overlay").classList.remove("hidden"); }
+    function hideLoading() { document.getElementById("loading-overlay").classList.add("hidden"); }
+
+    async function api(method, path, body = null) {
+      showLoading();
+      try {
+        const opts = { method, headers: { "Content-Type": "application/json" } };
+        if (body) opts.body = JSON.stringify(body);
+        const res = await fetch(API + path, opts);
+        const data = res.ok ? await res.json() : { error: "Viga", status: res.status };
+        console.log(`%c${method} ${path} → ${res.status}`, "color:#a78bfa");
+        return data;
+      } finally { hideLoading(); }
+    }
+
+    async function loadDashboard() {
+      const assignments = await api("GET", `/assignments?limit=6&schema=${SCHEMAS.assignments}`);
+      const container = document.getElementById("view-dashboard");
+      container.innerHTML = `
+        <h3 class="text-lg mb-6">Tere, Anna! Siin on sinu ülevaade</h3>
+        <div class="grid grid-cols-3 gap-6">
+          <div class="bg-gray-900 rounded-3xl p-6"><p class="text-sm text-gray-400">Tähtaegadeni jäänud</p><p class="text-5xl font-bold text-orange-400 mt-2">3</p></div>
+          <div class="bg-gray-900 rounded-3xl p-6"><p class="text-sm text-gray-400">Valmis ülesanded</p><p class="text-5xl font-bold text-emerald-400 mt-2">7</p></div>
+          <div class="bg-gray-900 rounded-3xl p-6"><p class="text-sm text-gray-400">Ootel kommentaare</p><p class="text-5xl font-bold text-violet-400 mt-2">2</p></div>
+        </div>
+        <h4 class="mt-10 mb-4 font-semibold">Tähtsamad ülesanded</h4>
+        <div id="upcoming-list" class="space-y-4"></div>
+      `;
+      const list = document.getElementById("upcoming-list");
+      list.innerHTML = assignments.map(a => `
+        <div onclick="openAssignment(${a.id})" class="bg-gray-900 hover:bg-gray-800 rounded-3xl p-5 cursor-pointer">
+          <div class="flex justify-between"><p class="font-medium">${a.title}</p><span class="px-4 py-1 text-xs rounded-2xl ${a.status === 'done' ? 'bg-emerald-400 text-black' : 'bg-orange-400 text-black'}">${a.status}</span></div>
+          <p class="text-sm text-gray-400">${a.deadline ? new Date(a.deadline).toLocaleDateString('et-EE') : '-'}</p>
+          <p class="text-sm text-gray-300 line-clamp-2 mt-3">${a.description || ''}</p>
+        </div>
+      `).join('');
+    }
+
+    async function loadAssignments() {
+      const data = await api("GET", `/assignments?schema=${SCHEMAS.assignments}`);
+      const container = document.getElementById("view-assignments");
+      container.innerHTML = `
+        <div class="flex justify-between mb-6">
+          <h3 class="text-xl font-semibold">Minu ülesanded</h3>
+          <button onclick="showCreateModal()" class="bg-violet-600 hover:bg-violet-700 px-6 py-2 rounded-2xl text-sm font-medium flex items-center gap-2">
+            <i class="fa-solid fa-plus"></i> Uus ülesanne
+          </button>
+        </div>
+        <div id="assignments-list" class="grid grid-cols-1 gap-4"></div>
+      `;
+      const list = document.getElementById("assignments-list");
+      list.innerHTML = data.map(a => `
+        <div onclick="openAssignment(${a.id})" class="bg-gray-900 hover:bg-gray-800 rounded-3xl p-6 cursor-pointer">
+          <div class="flex justify-between items-start">
+            <div class="flex-1">
+              <p class="font-semibold text-lg">${a.title}</p>
+              <p class="text-gray-400 text-sm">Tähtaeg: ${a.deadline || 'pole'}</p>
+              <p class="text-sm text-gray-300 mt-3 line-clamp-3">${a.description || 'Sisu puudub'}</p>
+            </div>
+            <span class="px-5 py-2 rounded-3xl text-sm ${a.status === 'done' ? 'bg-emerald-500' : 'bg-gray-600'}">${a.status}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function openAssignment(id) {
+      currentAssignment = await api("GET", `/assignments/${id}`);
+      let comments = await api("GET", `/assignments/${id}/comments?schema=${SCHEMAS.comments}`);
+
+      if (!Array.isArray(comments)) comments = comments?.items || comments?.data || [];
+
+      const commentHTML = comments.map(c => `
+        <div class="bg-gray-800 p-5 rounded-3xl mb-3">
+          <p class="text-gray-100">${c.content || c.text || ''}</p>
+          <div class="text-xs text-gray-400 mt-3">${c.created_at || c.timestamp || 'just nüüd'}</div>
+        </div>
+      `).join('');
+
+      document.getElementById("modal-content").innerHTML = `
+        <h2 class="text-2xl font-bold">${currentAssignment.title}</h2>
+        <p class="text-gray-400">Tähtaeg: <strong>${currentAssignment.deadline || 'pole'}</strong></p>
+        <div class="my-8 bg-gray-800 rounded-3xl p-7">
+          <p class="text-gray-100 leading-relaxed">${currentAssignment.description || currentAssignment.content || 'Sisu puudub'}</p>
+        </div>
+        <h4 class="font-medium mb-4">Kommentaarid (${comments.length})</h4>
+        <div class="space-y-4 max-h-80 overflow-auto">${commentHTML || '<p class="italic text-gray-400">Kommentaare pole</p>'}</div>
+        <textarea id="new-comment" rows="3" class="w-full bg-gray-800 rounded-3xl p-5 mt-6" placeholder="Lisa kommentaar..."></textarea>
+        <button onclick="postComment()" class="mt-3 bg-violet-600 hover:bg-violet-700 w-full py-4 rounded-3xl font-medium">Postita kommentaar</button>
+        <div class="flex gap-3 mt-8">
+          <button onclick="hideModal()" class="flex-1 py-4 border border-gray-700 rounded-3xl">Sulge</button>
+          <button onclick="markAsDone()" class="flex-1 py-4 bg-emerald-600 hover:bg-emerald-700 rounded-3xl">Märgi lõpetatuks</button>
+        </div>
+      `;
+      document.getElementById("modal").classList.remove("hidden");
+    }
+
+    async function postComment() {
+      const content = document.getElementById("new-comment").value.trim();
+      if (!content || !currentAssignment) return;
+
+      await api("POST", `/assignments/${currentAssignment.id}/comments`, {
+        content,
+        assignment_id: currentAssignment.id,
+        user_id: currentUser.id
+      });
+
+      hideModal();
+      setTimeout(() => openAssignment(currentAssignment.id), 500);   // veidi viidet, et backend jõuaks
+    }
+
+    async function markAsDone() {
+      if (!currentAssignment) return;
+      await api("PATCH", `/assignments/${currentAssignment.id}`, { status: "done" });
+      hideModal();
+      loadAssignments();
+      loadDashboard();
+    }
+
+    function showCreateModal() {
+      document.getElementById("create-modal").classList.remove("hidden");
+      document.getElementById("create-form").reset();
+    }
+
+    function hideCreateModal() {
+      document.getElementById("create-modal").classList.add("hidden");
+    }
+
+    async function submitNewAssignment(e) {
+      e.preventDefault();
+      const title = document.getElementById("form-title").value;
+      const deadline = document.getElementById("form-deadline").value;
+      const status = document.getElementById("form-status").value;
+      const description = document.getElementById("form-description").value;
+
+      await api("POST", "/assignments", { title, deadline, status, description });
+      hideCreateModal();
+      loadAssignments();
+      loadDashboard();
+    }
+
+    async function loadTags() {
+      const tags = await api("GET", `/tags?schema=id,name,created_at`);
+      const container = document.getElementById("view-tags");
+      container.innerHTML = `<h3 class="text-xl font-semibold mb-6">Tag'id / Platvormid</h3><div id="tags-list" class="flex flex-wrap gap-3"></div>`;
+      document.getElementById("tags-list").innerHTML = tags.map(t => `
+        <span class="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-3xl text-sm cursor-pointer flex items-center gap-2"><i class="fa-solid fa-tag"></i> ${t.name}</span>
+      `).join('');
+    }
+
+    async function loadComments() {
+      const comments = await api("GET", `/comments?schema=${SCHEMAS.comments}`);
+      const container = document.getElementById("view-comments");
+      container.innerHTML = `<h3 class="text-xl font-semibold mb-6">Kõik kommentaarid</h3><div id="all-comments" class="space-y-6"></div>`;
+      document.getElementById("all-comments").innerHTML = comments.map(c => `
+        <div class="bg-gray-900 rounded-3xl p-6"><p class="font-medium">${c.content || c.text}</p><p class="text-xs text-gray-400 mt-3">Ülesanne #${c.assignment_id}</p></div>
+      `).join('');
+    }
+
+    function hideModal() { document.getElementById("modal").classList.add("hidden"); }
+
+    function showView(view) {
+      document.querySelectorAll('[id^="view-"]').forEach(v => v.classList.add("hidden"));
+      document.getElementById(`view-${view}`).classList.remove("hidden");
+      document.getElementById("page-title").textContent = {
+        dashboard: "Avaleht", assignments: "Minu ülesanded", tags: "Tag'id", comments: "Kommentaarid"
+      }[view];
+
+      if (view === "dashboard") loadDashboard();
+      if (view === "assignments") loadAssignments();
+      if (view === "tags") loadTags();
+      if (view === "comments") loadComments();
+    }
+
+    async function resetDatabase() {
+      if (!confirm("Kustutame kogu simulaatori andmebaasi?")) return;
+      await fetch(API + "/delete-all", { method: "DELETE" });
+      alert("Simulaator puhastatud!");
+      showView("dashboard");
+    }
+
+    function switchUser() {
+      currentUser.id = currentUser.id === 1 ? 2 : 1;
+      currentUser.name = currentUser.id === 1 ? "Anna Tamm" : "Martin Kask";
+      document.getElementById("user-name").textContent = currentUser.name;
+      document.getElementById("user-role").innerHTML = `${currentUser.role} • ID: ${currentUser.id}`;
+      showView("dashboard");
+    }
+
+    window.onload = () => {
+      showView("dashboard");
+      console.log("%c✅ Täielik versioon laetud – kõik funktsioonid olemas", "color:#a78bfa;font-weight:bold");
+    };
+  </script>
+</body>
+</html>

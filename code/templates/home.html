@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+    <html lang="et">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>AI API Simulator</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+        </head>
+        <body class="bg-zinc-950 text-zinc-100">
+            <div class="max-w-5xl mx-auto py-12 px-8">
+                <div class="flex items-center gap-4 mb-8">
+                    <i class="fa-solid fa-flask text-5xl text-emerald-400"></i>
+                    <div>
+                        <h1 class="text-4xl font-bold">AI API Simulator</h1>
+                        <p class="text-zinc-400">Universaalne AI-põhine REST API mock server</p>
+                    </div>
+                </div>
+
+                <div class="bg-zinc-900 rounded-3xl p-8 mb-10">
+                    <p class="text-lg leading-relaxed">
+                        See simulaator loob <strong>AI abil</strong> realistlikke andmeid iga võimaliku ressursi jaoks. 
+                        Esimene päring genereerib andmed, järgmised päringud tulevad andmebaasist, mis tagab stabiilse struktuuri.
+                        Lisaks on kasutajal võimalus päringuparameetriga kirjeldada soovitud andmestruktuuri.
+                    </p>
+                </div>
+
+                <h2 class="text-2xl font-semibold mb-6 flex items-center gap-3">
+                <i class="fa-solid fa-circle-info"></i> Kuidas see töötab?
+                </h2>
+                <div class="grid grid-cols-3 gap-6 mb-12">
+                    <div class="bg-zinc-900 rounded-3xl p-6">
+                        <h3 class="font-semibold mb-2">1. API kirjeldus</h3>
+                        <p class="text-sm text-zinc-400">Esmalt tuleb määrata API kirjeldus, mis defineerib, mis API-t rakendus simuleerib.</p>
+                    </div>
+                    <div class="bg-zinc-900 rounded-3xl p-6">
+                        <h3 class="font-semibold mb-2">2. AI-generatsioon</h3>
+                        <p class="text-sm text-zinc-400">Esimesel päringul loob tehisintellekti mudel (OpenAI GPT 4o-mini) 
+                            realistlikud andmed vastavalt API kirjeldusele, päringule ning soovitud andmestruktuurile, 
+                            juhul kui see on päringuparameetrites kirjas.</p>
+                    </div>
+                    <div class="bg-zinc-900 rounded-3xl p-6">
+                        <h3 class="font-semibold mb-2">3. Stabiilne andmebaas</h3>
+                        <p class="text-sm text-zinc-400">Andmed salvestatakse SQLite andmebaasi. 
+                            Järgmised päringud samale lõpp-punktile tagastavad eelnevalt genereeritud andmeid.</p>
+                    </div>
+                    <div class="bg-zinc-900 rounded-3xl p-6">
+                        <h3 class="font-semibold mb-2">4. Andmeskeemi kontroll</h3>
+                        <p class="text-sm text-zinc-400">?schema= parameeter võimaldab tehisintellektile edastada täpse väljade nimekirja, 
+                            mis ressursil olema peaks.</p>
+                    </div>
+                </div>
+
+                <h2 class="text-2xl font-semibold mb-6">Peamised võimalused</h2>
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="bg-zinc-900 rounded-3xl p-7">
+                        <h3 class="font-medium text-emerald-400 mb-4">Toetatud HTTP meetodid</h3>
+                        <ul class="space-y-3 text-sm">
+                        <li><strong>GET</strong> — andmete lugemine (kogu kollektsioon või üks element)</li>
+                        <li><strong>POST</strong> — uue ressursi loomine</li>
+                        <li><strong>PATCH</strong> — olemasoleva ressursi muutmine</li>
+                        <li><strong>DELETE</strong> — ressursi kustutamine 
+                            (eemaldatakse andmebaasist ning lisatakse musta nimekirja)</li>
+                        </ul>
+                    </div>
+                    <div class="bg-zinc-900 rounded-3xl p-7">
+                        <h3 class="font-medium text-emerald-400 mb-4">Päringuparameetrid</h3>
+                        <ul class="space-y-3 text-sm">
+                        <li><code>?limit=10</code> — tagastab täpselt määratud arvu kirjeid</li>
+                        <li><code>?schema=title,deadline,status</code> — sunnib AI-d kasutama täpselt neid välju</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="mt-12 bg-zinc-900 rounded-3xl p-8">
+                    <h3 class="font-semibold mb-4">Kasulikud lingid</h3>
+                    <div class="flex flex-wrap gap-4">
+                        <a href="/tester2.html" class="bg-violet-600 hover:bg-violet-700 px-6 py-3 rounded-2xl inline-flex items-center gap-2">
+                        <i class="fa-solid fa-flask"></i> Ava interaktiivne tester
+                        </a>
+                    </div>
+                </div>
+
+                <p class="text-center text-zinc-500 mt-16 text-sm">
+                Universaalne AI API Simulator • Toetab suvalist domeeni
+                </p>
+            </div>
+        </div>
+    </body>
+    </html>

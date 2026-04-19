@@ -20,11 +20,21 @@ else:
     )
     MODEL = "llama3"
 
-API_SPECIFICATION = os.getenv("API_SPECIFICATION", "You are a fast REST API mock server. Return only valid JSON.")
+user_api_spec = None
 
-# Keep this block stable across requests so providers can cache the prefix.
-BASE_INSTRUCTIONS = (
-    f"Your API specification is: {API_SPECIFICATION}\n"
+
+def get_api_specification(user_api_spec_override=None):
+    if isinstance(user_api_spec_override, str) and user_api_spec_override.strip():
+        return user_api_spec_override.strip()
+    if isinstance(user_api_spec, str) and user_api_spec.strip():
+        return user_api_spec.strip()
+    return os.getenv("API_SPECIFICATION", "You are a fast REST API mock server. Return only valid JSON.")
+
+
+def _build_base_instructions():
+    current_specification = get_api_specification()
+    return (
+    f"Your API specification is: {current_specification}\n"
     "Rules:\n"
     "1. Check your API specification and check the suitability of the requested resource. If the request is not suitable for your API specification, give an error object with a clear message, example:\n"
     "{\n"
@@ -114,10 +124,12 @@ async def get_ai_content(path, parent_path=None, parent_data=None, expected_sche
         f"{count_block}"
     )
 
+    base_instructions = _build_base_instructions()
+
     try:
         response = await client.responses.create(
             model=MODEL,
-            instructions=BASE_INSTRUCTIONS,
+            instructions=base_instructions,
             input=user_input,
             text={"format": {"type": "json_object"}},
         )
@@ -135,7 +147,7 @@ async def get_ai_content(path, parent_path=None, parent_data=None, expected_sche
                 f" | total: {total_tokens}"
             )
         else:
-            estimated_prompt_tokens = _estimate_tokens(BASE_INSTRUCTIONS + user_input)
+            estimated_prompt_tokens = _estimate_tokens(base_instructions + user_input)
             print(
                 "[AI] Token usage | prompt: unavailable from provider"
                 f" | estimated_prompt: ~{estimated_prompt_tokens}"

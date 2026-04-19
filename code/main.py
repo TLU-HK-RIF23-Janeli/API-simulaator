@@ -1,6 +1,6 @@
 import time
 import re
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import database
 import ai_client
 import reset_db
@@ -465,12 +465,52 @@ async def _handle_collection_limit_request(full_path, requested_limit, start_tim
 
 @app.route('/')
 def home():
+    return render_template('home.html'), 200
+
+@app.route('/specification', methods = ['POST'])
+def set_specification():
+    content_type = request.headers.get('Content-Type')
+    if content_type != 'application/json':
+        return jsonify({
+            "error": "BAD_REQUEST",
+            "message": "Content-Type must be application/json.",
+            "status": 400,
+        }), 400
+
+    body = request.get_json(silent=True)
+    if body is None:
+        return jsonify({
+            "error": "BAD_REQUEST",
+            "message": "Request body must be valid JSON.",
+            "status": 400,
+        }), 400
+
+    specification = body.get("specification")
+    if not isinstance(specification, str) or not specification.strip():
+        return jsonify({
+            "error": "BAD_REQUEST",
+            "message": "JSON body must include a non-empty 'specification' field of type string.",
+            "status": 400,
+        }), 400
+
+    ai_client.user_api_spec = specification.strip()
+    print(f"API specification updated to: {ai_client.user_api_spec}")
     return jsonify({
-        "status": "online",
-        "message": "Tere tulemast API simulatorisse!",
-        "instructions": "Siia tuleb hiljem lisainfo",
-        "links": "github repo, dokumentatsioon, jne"
+        "message": "API specification updated successfully.",
+        "status": 200,
     }), 200
+
+@app.route('/specification', methods = ['GET'])
+def get_specification():
+    API_SPECIFICATION = ai_client.get_api_specification()
+    return jsonify({
+        "api_specification": API_SPECIFICATION,
+        "status": 200,
+    }), 200
+
+@app.route('/tester2.html')
+def tester():
+    return app.send_static_file('tester2.html')
 
 @app.route('/delete-all', methods=['DELETE'])
 def delete_all():
@@ -866,4 +906,4 @@ def unsupported_method(subpath):
 
 if __name__ == '__main__':
     # Start the Flask app
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5000)
