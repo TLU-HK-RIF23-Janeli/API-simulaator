@@ -537,6 +537,132 @@ def init_db():
     conn.close()
     print("Simple cache database initialized.")
 
+
+def _is_int_like(value):
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    if isinstance(value, str) and value.isdigit():
+        return True
+    return False
+
+
+def _infer_field_type(field_name, samples):
+    if field_name == "id" or field_name.endswith("_id"):
+        return "integer"
+
+    non_null = [value for value in samples if value is not None]
+    if not non_null:
+        return "unknown"
+
+    if all(_is_int_like(value) for value in non_null):
+        return "integer"
+
+    if all(isinstance(value, bool) for value in non_null):
+        return "boolean"
+
+    if all(isinstance(value, (dict, list)) for value in non_null):
+        return "object_or_array"
+
+    return "string"
+
+
+def _list_dynamic_tables(cursor):
+    cursor.execute(
+        """
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name NOT IN ('cached_responses', 'blacklist', 'sqlite_sequence')
+        ORDER BY name
+        """
+    )
+    return [row[0] for row in cursor.fetchall()]
+
+
+def get_documentation_state_snapshot():
+    """
+    Returns a read-only snapshot of current dynamic resources and blacklist
+    entries for documentation rendering.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        resources = []
+        for table_name in _list_dynamic_tables(cursor):
+            columns = _table_columns(cursor, table_name)
+            data_columns = [
+                column
+                for column in columns
+                if column not in {"row_id", "source_path", "created_at"}
+            ]
+
+            cursor.execute(f'SELECT COUNT(*) FROM "{table_name}"')
+            row_count = cursor.fetchone()[0]
+
+            sample_items = []
+            source_paths = []
+            if "source_path" in columns:
+                cursor.execute(
+                    f'SELECT * FROM "{table_name}" ORDER BY row_id DESC LIMIT 3'
+                )
+                for row in cursor.fetchall():
+                    item = _row_to_dict(columns, row)
+                    sample_items.append({
+                        key: value
+                        for key, value in item.items()
+                        if key not in {"row_id", "source_path", "created_at"}
+                    })
+
+                cursor.execute(
+                    f'SELECT DISTINCT source_path FROM "{table_name}" WHERE source_path IS NOT NULL ORDER BY source_path LIMIT 10'
+                )
+                source_paths = [row[0] for row in cursor.fetchall()]
+
+            fields = []
+            for field_name in sorted(data_columns, key=lambda name: (name != "id", name)):
+                samples = [item.get(field_name) for item in sample_items]
+                fields.append(
+                    {
+                        "name": field_name,
+                        "inferred_type": _infer_field_type(field_name, samples),
+                        "sample_values": [value for value in samples if value is not None][:3],
+                    }
+                )
+
+            resources.append(
+                {
+                    "resource": table_name,
+                    "table": table_name,
+                    "row_count": row_count,
+                    "fields": fields,
+                    "example_paths": source_paths,
+                    "sample_items": sample_items,
+                }
+            )
+
+        cursor.execute(
+            """
+            SELECT path, reason, blocked_at
+            FROM blacklist
+            ORDER BY blocked_at DESC, path ASC
+            """
+        )
+        blacklisted_paths = [
+            {"path": row[0], "reason": row[1], "blocked_at": row[2]}
+            for row in cursor.fetchall()
+        ]
+
+        return {
+            "resources": resources,
+            "blacklisted_paths": blacklisted_paths,
+            "resource_count": len(resources),
+            "blacklist_count": len(blacklisted_paths),
+        }
+    finally:
+        conn.close()
+
 def save_user_resource(path, data):
     """
     Saves a user-submitted resource (POST) to a collection.

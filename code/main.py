@@ -463,9 +463,101 @@ async def _handle_collection_limit_request(full_path, requested_limit, start_tim
     response.headers['X-Response-Time-MS'] = f"{duration:.2f}"
     return response, 200
 
+
+def _documentation_static_spec():
+    return {
+        "title": "TI API Simulator",
+        "version": "current",
+        "base_url": "/",
+        "endpoints": [
+            {
+                "path": "/specification",
+                "method": "GET",
+                "description": "Returns current simulation specification.",
+            },
+            {
+                "path": "/specification",
+                "method": "POST",
+                "description": "Sets simulation specification string.",
+            },
+            {
+                "path": "/delete-all",
+                "method": "DELETE",
+                "description": "Clears all cached/generated data and reinitializes DB.",
+            },
+            {
+                "path": "/<path:subpath>",
+                "method": "GET",
+                "description": "Reads resource; generates with AI when not found.",
+            },
+            {
+                "path": "/<path:subpath>",
+                "method": "POST",
+                "description": "Creates item in collection endpoints.",
+            },
+            {
+                "path": "/<path:subpath>",
+                "method": "PATCH",
+                "description": "Updates existing item endpoint.",
+            },
+            {
+                "path": "/<path:subpath>",
+                "method": "DELETE",
+                "description": "Deletes item and blacklists path/aliases.",
+            },
+        ],
+        "query_parameters": [
+            {
+                "name": "limit",
+                "applies_to": "Collection GET endpoints",
+                "type": "integer > 0",
+                "description": "Returns exactly N items; generates missing items if needed.",
+            },
+            {
+                "name": "schema",
+                "applies_to": "First generation GET requests",
+                "type": "comma separated values or repeated parameter",
+                "description": "Constrains generated schema fields.",
+            },
+        ],
+        "status_codes": [
+            {"status": 200, "meaning": "Success"},
+            {"status": 201, "meaning": "Created"},
+            {"status": 400, "meaning": "Bad request (query/body validation)"},
+            {"status": 403, "meaning": "Forbidden endpoint usage"},
+            {"status": 404, "meaning": "Not found or blacklisted"},
+            {"status": 405, "meaning": "Method not allowed"},
+            {"status": 409, "meaning": "Schema/id/path conflict"},
+            {"status": 422, "meaning": "Schema mismatch"},
+        ],
+    }
+
+
+def _documentation_state_payload():
+    state = database.get_documentation_state_snapshot()
+    return {
+        "specification": _documentation_static_spec(),
+        "resources": state.get("resources", []),
+        "blacklisted_paths": state.get("blacklisted_paths", []),
+        "totals": {
+            "resource_count": state.get("resource_count", 0),
+            "blacklist_count": state.get("blacklist_count", 0),
+        },
+        "status": 200,
+    }
+
 @app.route('/')
 def home():
     return render_template('home.html'), 200
+
+@app.route('/documentation')
+def documentation():
+    return render_template('documentation.html'), 200
+
+
+@app.route('/documentation/state', methods=['GET'])
+def documentation_state():
+    return jsonify(_documentation_state_payload()), 200
 
 @app.route('/specification', methods = ['POST'])
 def set_specification():

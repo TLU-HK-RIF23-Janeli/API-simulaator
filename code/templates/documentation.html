@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="et">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Dokumentatsioon</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body class="bg-zinc-950 text-zinc-100">
+  <div class="max-w-6xl mx-auto px-6 py-10">
+    <header class="mb-10">
+      <div class="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 class="text-4xl font-bold tracking-tight">Simuleeritud API dokumentatsioon</h1>
+          <p class="text-zinc-400 mt-2">Reaalajas vaade: spetsifikatsioon + hetke andmebaasi seis.</p>
+        </div>
+        <button id="refreshBtn" class="bg-emerald-500 hover:bg-emerald-600 text-zinc-900 font-semibold px-5 py-3 rounded-2xl">
+          Uuenda vaadet
+        </button>
+      </div>
+    </header>
+
+    <section class="grid md:grid-cols-3 gap-4 mb-10" id="summaryCards"></section>
+
+    <section class="bg-zinc-900 rounded-3xl p-6 mb-8">
+      <h2 class="text-2xl font-semibold mb-4">Endpointid</h2>
+      <div id="endpointList" class="space-y-3"></div>
+    </section>
+
+    <section class="bg-zinc-900 rounded-3xl p-6 mb-8">
+      <h2 class="text-2xl font-semibold mb-4">Query parameetrid</h2>
+      <div id="queryParamList" class="space-y-3"></div>
+    </section>
+
+    <section class="bg-zinc-900 rounded-3xl p-6 mb-8">
+      <h2 class="text-2xl font-semibold mb-4">Status koodid</h2>
+      <div id="statusCodeList" class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3"></div>
+    </section>
+
+    <section class="bg-zinc-900 rounded-3xl p-6 mb-8">
+      <h2 class="text-2xl font-semibold mb-4">Ressursid ja andmestruktuur</h2>
+      <div id="resourceList" class="space-y-8"></div>
+    </section>
+
+    <section class="bg-zinc-900 rounded-3xl p-6 mb-8">
+      <h2 class="text-2xl font-semibold mb-4">Kustutatud / blacklistitud teed</h2>
+      <div id="blacklistList" class="space-y-3"></div>
+    </section>
+  </div>
+
+  <script>
+    const stateUrl = "/documentation/state";
+
+    function escapeHtml(value) {
+      if (value === null || value === undefined) return "";
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function badgeForType(type) {
+      const color = type === "integer"
+        ? "bg-emerald-500/20 text-emerald-300"
+        : type === "boolean"
+        ? "bg-sky-500/20 text-sky-300"
+        : type === "object_or_array"
+        ? "bg-amber-500/20 text-amber-300"
+        : "bg-zinc-700 text-zinc-200";
+
+      return `<span class="${color} text-xs font-semibold px-3 py-1 rounded-full">${escapeHtml(type)}</span>`;
+    }
+
+    function renderSummary(totals) {
+      const cards = [
+        { label: "Ressursse", value: totals.resource_count },
+        { label: "Blacklist kirjeid", value: totals.blacklist_count },
+        { label: "Uuendatud", value: new Date().toLocaleString("et-EE") }
+      ];
+
+      document.getElementById("summaryCards").innerHTML = cards.map((card) => `
+        <article class="bg-zinc-900 rounded-3xl p-5">
+          <div class="text-zinc-400 text-sm">${escapeHtml(card.label)}</div>
+          <div class="text-2xl font-bold mt-2">${escapeHtml(card.value)}</div>
+        </article>
+      `).join("");
+    }
+
+    function renderEndpoints(endpoints) {
+      if (!endpoints.length) {
+        document.getElementById("endpointList").innerHTML = "<p class='text-zinc-400'>Endpointe ei leitud.</p>";
+        return;
+      }
+
+      document.getElementById("endpointList").innerHTML = endpoints.map((endpoint) => `
+        <article class="border border-zinc-800 rounded-2xl p-4">
+          <div class="flex flex-wrap gap-2 items-center mb-2">
+            <span class="bg-zinc-800 text-zinc-100 text-xs font-bold px-2 py-1 rounded">${escapeHtml(endpoint.method)}</span>
+            <span class="font-mono text-sm">${escapeHtml(endpoint.path)}</span>
+          </div>
+          <p class="text-zinc-300 text-sm">${escapeHtml(endpoint.description)}</p>
+        </article>
+      `).join("");
+    }
+
+    function renderQueryParams(params) {
+      if (!params.length) {
+        document.getElementById("queryParamList").innerHTML = "<p class='text-zinc-400'>Parameetreid ei leitud.</p>";
+        return;
+      }
+
+      document.getElementById("queryParamList").innerHTML = params.map((param) => `
+        <article class="border border-zinc-800 rounded-2xl p-4">
+          <div class="flex flex-wrap gap-2 items-center mb-2">
+            <span class="font-mono text-sm text-emerald-300">${escapeHtml(param.name)}</span>
+            <span class="text-xs bg-zinc-800 px-2 py-1 rounded">${escapeHtml(param.type)}</span>
+          </div>
+          <p class="text-sm text-zinc-300 mb-1">${escapeHtml(param.description)}</p>
+          <p class="text-xs text-zinc-500">Kehtib: ${escapeHtml(param.applies_to)}</p>
+        </article>
+      `).join("");
+    }
+
+    function renderStatusCodes(statusCodes) {
+      if (!statusCodes.length) {
+        document.getElementById("statusCodeList").innerHTML = "<p class='text-zinc-400'>Staatuskoode ei leitud.</p>";
+        return;
+      }
+
+      document.getElementById("statusCodeList").innerHTML = statusCodes.map((row) => `
+        <article class="border border-zinc-800 rounded-2xl p-4">
+          <p class="text-2xl font-bold">${escapeHtml(row.status)}</p>
+          <p class="text-sm text-zinc-300 mt-1">${escapeHtml(row.meaning)}</p>
+        </article>
+      `).join("");
+    }
+
+    function renderResources(resources) {
+      if (!resources.length) {
+        document.getElementById("resourceList").innerHTML = "<p class='text-zinc-400'>Andmebaasis pole veel ühtegi ressurssi.</p>";
+        return;
+      }
+
+      document.getElementById("resourceList").innerHTML = resources.map((resource) => {
+        const fieldRows = resource.fields.length
+          ? resource.fields.map((field) => `
+              <tr class="border-b border-zinc-800 last:border-0">
+                <td class="py-2 pr-3 font-mono text-sm">${escapeHtml(field.name)}</td>
+                <td class="py-2 pr-3">${badgeForType(field.inferred_type)}</td>
+                <td class="py-2 text-zinc-300 text-xs">${escapeHtml((field.sample_values || []).join(", ")) || "-"}</td>
+              </tr>
+            `).join("")
+          : "<tr><td colspan='3' class='py-2 text-zinc-400 text-sm'>Väljad puuduvad.</td></tr>";
+
+        const paths = resource.example_paths && resource.example_paths.length
+          ? resource.example_paths.map((path) => `<code class='text-xs bg-zinc-800 rounded px-2 py-1'>${escapeHtml(path)}</code>`).join(" ")
+          : "<span class='text-zinc-500 text-sm'>Näidisteid ei ole.</span>";
+
+        const sampleJson = resource.sample_items && resource.sample_items.length
+          ? escapeHtml(JSON.stringify(resource.sample_items[0], null, 2))
+          : "{}";
+
+        return `
+          <article class="border border-zinc-800 rounded-3xl p-5">
+            <div class="flex flex-wrap justify-between gap-2 mb-4">
+              <h3 class="text-xl font-semibold">/${escapeHtml(resource.resource)}</h3>
+              <span class="text-xs bg-zinc-800 px-3 py-1 rounded-full">kirjeid: ${escapeHtml(resource.row_count)}</span>
+            </div>
+
+            <div class="mb-4 flex flex-wrap gap-2">${paths}</div>
+
+            <div class="overflow-x-auto mb-4">
+              <table class="w-full text-left">
+                <thead>
+                  <tr class="border-b border-zinc-700 text-zinc-400 text-xs uppercase tracking-wide">
+                    <th class="py-2 pr-3">Väli</th>
+                    <th class="py-2 pr-3">Tüüp</th>
+                    <th class="py-2">Näidisväärtus</th>
+                  </tr>
+                </thead>
+                <tbody>${fieldRows}</tbody>
+              </table>
+            </div>
+
+            <details class="bg-zinc-950 rounded-2xl p-4">
+              <summary class="cursor-pointer text-sm text-zinc-300">Näidis JSON</summary>
+              <pre class="mt-3 text-xs text-zinc-200 overflow-x-auto">${sampleJson}</pre>
+            </details>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function renderBlacklist(items) {
+      if (!items.length) {
+        document.getElementById("blacklistList").innerHTML = "<p class='text-zinc-400'>Blacklist on tühi.</p>";
+        return;
+      }
+
+      document.getElementById("blacklistList").innerHTML = items.map((entry) => `
+        <article class="border border-zinc-800 rounded-2xl p-4">
+          <p class="font-mono text-sm text-rose-300">${escapeHtml(entry.path)}</p>
+          <p class="text-sm text-zinc-300 mt-1">${escapeHtml(entry.reason || "-")}</p>
+          <p class="text-xs text-zinc-500 mt-2">${escapeHtml(entry.blocked_at || "")}</p>
+        </article>
+      `).join("");
+    }
+
+    async function loadDocumentationState() {
+      const response = await fetch(stateUrl);
+      if (!response.ok) {
+        throw new Error(`State fetch failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      renderSummary(data.totals || { resource_count: 0, blacklist_count: 0 });
+      renderEndpoints((data.specification && data.specification.endpoints) || []);
+      renderQueryParams((data.specification && data.specification.query_parameters) || []);
+      renderStatusCodes((data.specification && data.specification.status_codes) || []);
+      renderResources(data.resources || []);
+      renderBlacklist(data.blacklisted_paths || []);
+    }
+
+    async function initialize() {
+      try {
+        await loadDocumentationState();
+      } catch (error) {
+        document.getElementById("resourceList").innerHTML = `<p class='text-red-400'>Viga dokumentatsiooni laadimisel: ${escapeHtml(error.message)}</p>`;
+      }
+    }
+
+    document.getElementById("refreshBtn").addEventListener("click", initialize);
+    initialize();
+  </script>
+</body>
+</html>
