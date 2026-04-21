@@ -3,7 +3,7 @@
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>AI API Simulator</title>
+            <title>TI API Simulator</title>
             <script src="https://cdn.tailwindcss.com"></script>
             <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
         </head>
@@ -12,17 +12,20 @@
                 <div class="flex items-center gap-4 mb-8">
                     <i class="fa-solid fa-flask text-5xl text-emerald-400"></i>
                     <div>
-                        <h1 class="text-4xl font-bold">AI API Simulator</h1>
-                        <p class="text-zinc-400">Universaalne AI-põhine REST API mock server</p>
+                        <h1 class="text-4xl font-bold">TI API simulaator</h1>
+                        <p class="text-zinc-400">Universaalne tehisintellektipõhine REST API mock server</p>
                     </div>
                 </div>
 
                 <div class="bg-zinc-900 rounded-3xl p-8 mb-10">
                     <p class="text-lg leading-relaxed">
-                        See simulaator loob <strong>AI abil</strong> realistlikke andmeid iga võimaliku ressursi jaoks. 
+                        See simulaator loob <strong>TI abil</strong> realistlikke andmeid iga võimaliku ressursi jaoks. 
                         Esimene päring genereerib andmed, järgmised päringud tulevad andmebaasist, mis tagab stabiilse struktuuri.
                         Lisaks on kasutajal võimalus päringuparameetriga kirjeldada soovitud andmestruktuuri.
                     </p>
+                    <important class="block mt-4 text-sm text-yellow-400">
+                        Märkus: see tööriist töötab inglise keeles, seega API kirjeldus ja päringud peaksid olema inglise keeles, et TI saaks õigesti genereerida andmeid.
+                    </important>
                 </div>
 
                 <h2 class="text-2xl font-semibold mb-6 flex items-center gap-3">
@@ -31,13 +34,18 @@
                 <div class="grid grid-cols-3 gap-6 mb-12">
                     <div class="bg-zinc-900 rounded-3xl p-6">
                         <h3 class="font-semibold mb-2">1. API kirjeldus</h3>
-                        <p class="text-sm text-zinc-400">Esmalt tuleb määrata API kirjeldus, mis defineerib, mis API-t rakendus simuleerib.</p>
+                        <p class="text-sm text-zinc-400 mb-4">Esmalt tuleb määrata API kirjeldus, mis defineerib, mis API-t rakendus simuleerib.</p>
+                        <h3 class="font-semibold mb-2">Kuidas?</h3>
+                        <p class="text-sm text-zinc-400">Saada POST päring lõpp-punktile <code>/specification</code>:</p>
+                        <code class="block bg-zinc-800 text-sm p-3 rounded-lg mb-2">{"specification":"API description"}</code>
                     </div>
                     <div class="bg-zinc-900 rounded-3xl p-6">
-                        <h3 class="font-semibold mb-2">2. AI-generatsioon</h3>
-                        <p class="text-sm text-zinc-400">Esimesel päringul loob tehisintellekti mudel (OpenAI GPT 4o-mini) 
+                        <h3 class="font-semibold mb-2">2. TI andmete generatsioon</h3>
+                        <p class="text-sm text-zinc-400 mb-4">Esimesel päringul loob tehisintellekti mudel (OpenAI GPT 4o-mini) 
                             realistlikud andmed vastavalt API kirjeldusele, päringule ning soovitud andmestruktuurile, 
                             juhul kui see on päringuparameetrites kirjas.</p>
+                        <h3 class="font-semibold mb-2">Märkus</h3>
+                        <p class="text-sm text-zinc-400">Ressursside soovitud väljad on mõistlik kohe koodis defineerida, et vältida andmete struktuuri muutusi.</p>
                     </div>
                     <div class="bg-zinc-900 rounded-3xl p-6">
                         <h3 class="font-semibold mb-2">3. Stabiilne andmebaas</h3>
@@ -47,7 +55,8 @@
                     <div class="bg-zinc-900 rounded-3xl p-6">
                         <h3 class="font-semibold mb-2">4. Andmeskeemi kontroll</h3>
                         <p class="text-sm text-zinc-400">?schema= parameeter võimaldab tehisintellektile edastada täpse väljade nimekirja, 
-                            mis ressursil olema peaks.</p>
+                            mis ressursil olema peaks. Nii on võimalik tagada andmestruktuuri stabiilsus ka tühja andmebaasi puhul.
+                        </p>
                     </div>
                 </div>
 
