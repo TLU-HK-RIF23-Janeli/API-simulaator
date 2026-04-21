@@ -510,7 +510,7 @@ def get_specification():
 
 @app.route('/tester2.html')
 def tester():
-    return app.send_static_file('tester2.html')
+    return render_template('tester2.html')
 
 @app.route('/delete-all', methods=['DELETE'])
 def delete_all():
