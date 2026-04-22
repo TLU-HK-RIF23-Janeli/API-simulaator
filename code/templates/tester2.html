@@ -34,6 +34,7 @@
         <a onclick="showView('assignments')" class="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-gray-800 cursor-pointer">Minu ülesanded</a>
         <a onclick="showView('tags')" class="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-gray-800 cursor-pointer">Tag'id</a>
         <a onclick="showView('comments')" class="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-gray-800 cursor-pointer">Kommentaarid</a>
+        <a onclick="showView('api')" class="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-gray-800 cursor-pointer">API tööriist</a>
       </nav>
 
       <button onclick="resetDatabase()" class="mt-auto flex items-center justify-center gap-2 text-red-400 hover:text-red-300 py-3">
@@ -58,32 +59,33 @@
       <div id="view-assignments" class="p-8 hidden"></div>
       <div id="view-tags" class="p-8 hidden"></div>
       <div id="view-comments" class="p-8 hidden"></div>
+      <div id="view-api" class="p-8 hidden"></div>
     </div>
   </div>
 
   <!-- Modal -->
-  <div id="modal" onclick="if(event.target===this)hideModal()" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-    <div onclick="event.stopImmediatePropagation()" class="modal bg-gray-900 w-full max-w-2xl mx-4 rounded-3xl p-8">
+  <div id="modal" onclick="if(event.target===this)hideModal()" class="hidden fixed inset-0 bg-black/70 flex items-start sm:items-center justify-center overflow-y-auto p-3 sm:p-6 z-50">
+    <div onclick="event.stopImmediatePropagation()" class="modal bg-gray-900 w-full max-w-2xl rounded-2xl sm:rounded-3xl p-4 sm:p-8 max-h-[92vh] overflow-y-auto">
       <div id="modal-content"></div>
     </div>
   </div>
 
   <!-- Create modal -->
-  <div id="create-modal" onclick="if(event.target===this)hideCreateModal()" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-    <div onclick="event.stopImmediatePropagation()" class="modal bg-gray-900 w-full max-w-lg mx-4 rounded-3xl p-8">
-      <h3 class="text-xl font-semibold mb-6">Uus ülesanne</h3>
+  <div id="create-modal" onclick="if(event.target===this)hideCreateModal()" class="hidden fixed inset-0 bg-black/70 flex items-start sm:items-center justify-center overflow-y-auto p-3 sm:p-6 z-50">
+    <div onclick="event.stopImmediatePropagation()" class="modal bg-gray-900 w-full max-w-lg rounded-2xl sm:rounded-3xl p-4 sm:p-8 max-h-[92vh] overflow-y-auto">
+      <h3 class="text-lg sm:text-xl font-semibold mb-5 sm:mb-6">Uus ülesanne</h3>
       <form id="create-form" onsubmit="submitNewAssignment(event)">
-        <input id="form-title" required placeholder="Pealkiri" class="w-full bg-gray-800 rounded-2xl px-5 py-4 mb-4">
-        <input id="form-deadline" type="date" class="w-full bg-gray-800 rounded-2xl px-5 py-4 mb-4">
-        <select id="form-status" class="w-full bg-gray-800 rounded-2xl px-5 py-4 mb-4">
+        <input id="form-title" required placeholder="Pealkiri" class="w-full bg-gray-800 rounded-2xl px-4 py-3.5 mb-3">
+        <input id="form-deadline" type="date" class="w-full bg-gray-800 rounded-2xl px-4 py-3.5 mb-3">
+        <select id="form-status" class="w-full bg-gray-800 rounded-2xl px-4 py-3.5 mb-3">
           <option value="pending">Ootel</option>
           <option value="in_progress">Tegelen</option>
           <option value="done">Lõpetatud</option>
         </select>
-        <textarea id="form-description" rows="5" placeholder="Sisu / kirjeldus..." class="w-full bg-gray-800 rounded-3xl px-5 py-4"></textarea>
-        <div class="flex gap-3 mt-8">
-          <button type="button" onclick="hideCreateModal()" class="flex-1 py-4 border border-gray-700 rounded-3xl">Tühista</button>
-          <button type="submit" class="flex-1 py-4 bg-violet-600 hover:bg-violet-700 rounded-3xl">Loo ülesanne</button>
+        <textarea id="form-description" rows="4" placeholder="Sisu / kirjeldus..." class="w-full bg-gray-800 rounded-3xl px-4 py-3.5"></textarea>
+        <div class="flex flex-col sm:flex-row gap-3 mt-6 sm:mt-8">
+          <button type="button" onclick="hideCreateModal()" class="flex-1 py-3 border border-gray-700 rounded-3xl">Tühista</button>
+          <button type="submit" class="flex-1 py-3 bg-violet-600 hover:bg-violet-700 rounded-3xl">Loo ülesanne</button>
         </div>
       </form>
     </div>
@@ -99,42 +101,146 @@
     let currentAssignment = null;
     const API = "http://localhost:5000";
 
+    function escapeHtml(value) {
+      if (value === null || value === undefined) return "";
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function prettyJson(value) {
+      try {
+        return JSON.stringify(value, null, 2);
+      } catch {
+        return String(value);
+      }
+    }
+
+    function toArray(data) {
+      if (Array.isArray(data)) return data;
+      if (data && Array.isArray(data.items)) return data.items;
+      if (data && Array.isArray(data.data)) return data.data;
+      if (data && Array.isArray(data.results)) return data.results;
+      return [];
+    }
+
+    function toStatusLabel(status) {
+      const normalized = String(status || "pending").toLowerCase();
+      if (normalized === "done") return "Lõpetatud";
+      if (normalized === "in_progress") return "Tegelen";
+      return "Ootel";
+    }
+
+    function statusBadgeClass(status) {
+      const normalized = String(status || "pending").toLowerCase();
+      if (normalized === "done") return "bg-emerald-400 text-black";
+      if (normalized === "in_progress") return "bg-sky-400 text-black";
+      return "bg-orange-400 text-black";
+    }
+
     function showLoading() { document.getElementById("loading-overlay").classList.remove("hidden"); }
     function hideLoading() { document.getElementById("loading-overlay").classList.add("hidden"); }
 
-    async function api(method, path, body = null) {
+    async function apiRaw(method, path, body = null) {
       showLoading();
       try {
         const opts = { method, headers: { "Content-Type": "application/json" } };
-        if (body) opts.body = JSON.stringify(body);
+        if (body !== null && body !== undefined) opts.body = JSON.stringify(body);
         const res = await fetch(API + path, opts);
-        const data = res.ok ? await res.json() : { error: "Viga", status: res.status };
+        const text = await res.text();
+        let data = null;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch {
+          data = text;
+        }
         console.log(`%c${method} ${path} → ${res.status}`, "color:#a78bfa");
-        return data;
-      } finally { hideLoading(); }
+        return { ok: res.ok, status: res.status, data };
+      } finally {
+        hideLoading();
+      }
+    }
+
+    async function api(method, path, body = null) {
+      const result = await apiRaw(method, path, body);
+      if (result.ok) {
+        return result.data;
+      }
+      if (result.data && typeof result.data === "object") {
+        return result.data;
+      }
+      return { error: "Viga", status: result.status, details: result.data };
     }
 
     async function loadDashboard() {
-      const assignments = await api("GET", `/assignments?limit=6&schema=${SCHEMAS.assignments}`);
+      const assignmentData = await api("GET", `/assignments?schema=${SCHEMAS.assignments}`);
+      const commentData = await api("GET", `/comments?schema=${SCHEMAS.comments}`);
+      const assignments = toArray(assignmentData);
+      const comments = toArray(commentData);
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const doneCount = assignments.filter(a => String(a?.status || "").toLowerCase() === "done").length;
+      const inProgressCount = assignments.filter(a => String(a?.status || "").toLowerCase() === "in_progress").length;
+      const pendingCount = assignments.filter(a => !a?.status || String(a.status).toLowerCase() === "pending").length;
+      const overdueCount = assignments.filter(a => {
+        if (!a?.deadline) return false;
+        const deadline = new Date(a.deadline);
+        if (Number.isNaN(deadline.getTime())) return false;
+        deadline.setHours(0, 0, 0, 0);
+        return deadline < today && String(a?.status || "").toLowerCase() !== "done";
+      }).length;
+
+      const completionRate = assignments.length
+        ? Math.round((doneCount / assignments.length) * 100)
+        : 0;
+
+      const commentsByAssignment = comments.reduce((acc, comment) => {
+        const key = Number(comment?.assignment_id);
+        if (!Number.isFinite(key)) return acc;
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+
+      const upcomingAssignments = [...assignments]
+        .sort((a, b) => {
+          const aTime = a?.deadline ? new Date(a.deadline).getTime() : Number.MAX_SAFE_INTEGER;
+          const bTime = b?.deadline ? new Date(b.deadline).getTime() : Number.MAX_SAFE_INTEGER;
+          return aTime - bTime;
+        })
+        .slice(0, 6);
+
       const container = document.getElementById("view-dashboard");
       container.innerHTML = `
-        <h3 class="text-lg mb-6">Tere, Anna! Siin on sinu ülevaade</h3>
-        <div class="grid grid-cols-3 gap-6">
-          <div class="bg-gray-900 rounded-3xl p-6"><p class="text-sm text-gray-400">Tähtaegadeni jäänud</p><p class="text-5xl font-bold text-orange-400 mt-2">3</p></div>
-          <div class="bg-gray-900 rounded-3xl p-6"><p class="text-sm text-gray-400">Valmis ülesanded</p><p class="text-5xl font-bold text-emerald-400 mt-2">7</p></div>
-          <div class="bg-gray-900 rounded-3xl p-6"><p class="text-sm text-gray-400">Ootel kommentaare</p><p class="text-5xl font-bold text-violet-400 mt-2">2</p></div>
+        <h3 class="text-lg mb-2">Tere, ${escapeHtml(currentUser.name)}! Siin on sinu reaalajas ülevaade.</h3>
+        <p class="text-sm text-gray-400 mb-6">Kokku ülesandeid: ${assignments.length} • Lõpetamise määr: ${completionRate}%</p>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-6">
+          <div class="bg-gray-900 rounded-3xl p-6"><p class="text-sm text-gray-400">Ootel</p><p class="text-5xl font-bold text-orange-400 mt-2">${pendingCount}</p></div>
+          <div class="bg-gray-900 rounded-3xl p-6"><p class="text-sm text-gray-400">Tegelen</p><p class="text-5xl font-bold text-sky-400 mt-2">${inProgressCount}</p></div>
+          <div class="bg-gray-900 rounded-3xl p-6"><p class="text-sm text-gray-400">Lõpetatud</p><p class="text-5xl font-bold text-emerald-400 mt-2">${doneCount}</p></div>
+          <div class="bg-gray-900 rounded-3xl p-6"><p class="text-sm text-gray-400">Tähtaeg ületatud</p><p class="text-5xl font-bold text-rose-400 mt-2">${overdueCount}</p></div>
         </div>
-        <h4 class="mt-10 mb-4 font-semibold">Tähtsamad ülesanded</h4>
+        <h4 class="mt-10 mb-4 font-semibold">Järgmised ülesanded</h4>
         <div id="upcoming-list" class="space-y-4"></div>
       `;
       const list = document.getElementById("upcoming-list");
-      list.innerHTML = assignments.map(a => `
+      list.innerHTML = upcomingAssignments.length ? upcomingAssignments.map(a => `
         <div onclick="openAssignment(${a.id})" class="bg-gray-900 hover:bg-gray-800 rounded-3xl p-5 cursor-pointer">
-          <div class="flex justify-between"><p class="font-medium">${a.title}</p><span class="px-4 py-1 text-xs rounded-2xl ${a.status === 'done' ? 'bg-emerald-400 text-black' : 'bg-orange-400 text-black'}">${a.status}</span></div>
-          <p class="text-sm text-gray-400">${a.deadline ? new Date(a.deadline).toLocaleDateString('et-EE') : '-'}</p>
-          <p class="text-sm text-gray-300 line-clamp-2 mt-3">${a.description || ''}</p>
+          <div class="flex justify-between items-start gap-4">
+            <p class="font-medium">${escapeHtml(a.title || "Pealkirjata ülesanne")}</p>
+            <span class="px-4 py-1 text-xs rounded-2xl ${statusBadgeClass(a.status)}">${escapeHtml(toStatusLabel(a.status))}</span>
+          </div>
+          <div class="flex items-center justify-between mt-2 text-sm text-gray-400">
+            <span>Tähtaeg: ${a.deadline ? new Date(a.deadline).toLocaleDateString('et-EE') : '-'}</span>
+            <span>Kommentaare: ${commentsByAssignment[Number(a.id)] || 0}</span>
+          </div>
+          <p class="text-sm text-gray-300 line-clamp-2 mt-3">${escapeHtml(a.description || '')}</p>
         </div>
-      `).join('');
+      `).join('') : `<p class="text-sm text-gray-400 italic">Ülesandeid ei leitud.</p>`;
     }
 
     async function loadAssignments() {
@@ -172,27 +278,41 @@
 
       const commentHTML = comments.map(c => `
         <div class="bg-gray-800 p-5 rounded-3xl mb-3">
-          <p class="text-gray-100">${c.content || c.text || ''}</p>
-          <div class="text-xs text-gray-400 mt-3">${c.created_at || c.timestamp || 'just nüüd'}</div>
+          <div class="flex items-start justify-between gap-3">
+            <p class="text-gray-100">${escapeHtml(c.content || c.text || '')}</p>
+            ${c.id ? `<button onclick="deleteComment(${Number(c.id)})" class="text-xs text-red-300 hover:text-red-200">Kustuta</button>` : ""}
+          </div>
+          <div class="text-xs text-gray-400 mt-3">${escapeHtml(c.created_at || c.timestamp || 'just nüüd')}</div>
         </div>
       `).join('');
 
       document.getElementById("modal-content").innerHTML = `
-        <h2 class="text-2xl font-bold">${currentAssignment.title}</h2>
-        <p class="text-gray-400">Tähtaeg: <strong>${currentAssignment.deadline || 'pole'}</strong></p>
-        <div class="my-8 bg-gray-800 rounded-3xl p-7">
-          <p class="text-gray-100 leading-relaxed">${currentAssignment.description || currentAssignment.content || 'Sisu puudub'}</p>
+        <h2 class="text-xl sm:text-2xl font-bold">${escapeHtml(currentAssignment.title)}</h2>
+        <p class="text-gray-400">Tähtaeg: <strong>${escapeHtml(currentAssignment.deadline || 'pole')}</strong></p>
+        <div class="my-5 sm:my-8 bg-gray-800 rounded-3xl p-4 sm:p-7">
+          <p class="text-gray-100 leading-relaxed">${escapeHtml(currentAssignment.description || currentAssignment.content || 'Sisu puudub')}</p>
         </div>
         <h4 class="font-medium mb-4">Kommentaarid (${comments.length})</h4>
-        <div class="space-y-4 max-h-80 overflow-auto">${commentHTML || '<p class="italic text-gray-400">Kommentaare pole</p>'}</div>
-        <textarea id="new-comment" rows="3" class="w-full bg-gray-800 rounded-3xl p-5 mt-6" placeholder="Lisa kommentaar..."></textarea>
-        <button onclick="postComment()" class="mt-3 bg-violet-600 hover:bg-violet-700 w-full py-4 rounded-3xl font-medium">Postita kommentaar</button>
-        <div class="flex gap-3 mt-8">
-          <button onclick="hideModal()" class="flex-1 py-4 border border-gray-700 rounded-3xl">Sulge</button>
-          <button onclick="markAsDone()" class="flex-1 py-4 bg-emerald-600 hover:bg-emerald-700 rounded-3xl">Märgi lõpetatuks</button>
+        <div class="space-y-3 sm:space-y-4 max-h-56 sm:max-h-80 overflow-auto">${commentHTML || '<p class="italic text-gray-400">Kommentaare pole</p>'}</div>
+        <textarea id="new-comment" rows="3" class="w-full bg-gray-800 rounded-3xl p-4 mt-5 sm:mt-6" placeholder="Lisa kommentaar..."></textarea>
+        <button onclick="postComment()" class="mt-3 bg-violet-600 hover:bg-violet-700 w-full py-3 rounded-3xl font-medium">Postita kommentaar</button>
+        <div class="flex flex-col sm:flex-row gap-3 mt-6 sm:mt-8">
+          <button onclick="hideModal()" class="flex-1 py-3 border border-gray-700 rounded-3xl">Sulge</button>
+          <button onclick="markAsDone()" class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 rounded-3xl">Märgi lõpetatuks</button>
+          <button onclick="deleteCurrentAssignment()" class="flex-1 py-3 bg-red-600 hover:bg-red-700 rounded-3xl">Kustuta ülesanne</button>
         </div>
       `;
       document.getElementById("modal").classList.remove("hidden");
+    }
+
+    async function deleteComment(commentId) {
+      if (!currentAssignment) return;
+      if (!confirm(`Kustuta kommentaar #${commentId}?`)) return;
+
+      await api("DELETE", `/assignments/${currentAssignment.id}/comments/${commentId}`);
+      hideModal();
+      setTimeout(() => openAssignment(currentAssignment.id), 250);
+      loadComments();
     }
 
     async function postComment() {
@@ -215,6 +335,17 @@
       hideModal();
       loadAssignments();
       loadDashboard();
+    }
+
+    async function deleteCurrentAssignment() {
+      if (!currentAssignment) return;
+      if (!confirm(`Kustuta ülesanne #${currentAssignment.id}?`)) return;
+
+      await api("DELETE", `/assignments/${currentAssignment.id}`);
+      hideModal();
+      loadAssignments();
+      loadDashboard();
+      loadComments();
     }
 
     function showCreateModal() {
@@ -253,8 +384,87 @@
       const container = document.getElementById("view-comments");
       container.innerHTML = `<h3 class="text-xl font-semibold mb-6">Kõik kommentaarid</h3><div id="all-comments" class="space-y-6"></div>`;
       document.getElementById("all-comments").innerHTML = comments.map(c => `
-        <div class="bg-gray-900 rounded-3xl p-6"><p class="font-medium">${c.content || c.text}</p><p class="text-xs text-gray-400 mt-3">Ülesanne #${c.assignment_id}</p></div>
+        <div class="bg-gray-900 rounded-3xl p-6"><p class="font-medium">${escapeHtml(c.content || c.text || '')}</p><p class="text-xs text-gray-400 mt-3">Ülesanne #${escapeHtml(c.assignment_id)}</p></div>
       `).join('');
+    }
+
+    function toggleApiBodyInput() {
+      const method = document.getElementById("api-method")?.value || "GET";
+      const bodyInput = document.getElementById("api-body");
+      if (!bodyInput) return;
+
+      const shouldDisable = method === "GET" || method === "DELETE";
+      bodyInput.disabled = shouldDisable;
+      if (shouldDisable) {
+        bodyInput.classList.add("opacity-50");
+      } else {
+        bodyInput.classList.remove("opacity-50");
+      }
+    }
+
+    function loadApiTool() {
+      const container = document.getElementById("view-api");
+      container.innerHTML = `
+        <div class="bg-gray-900 rounded-3xl p-6">
+          <h3 class="text-xl font-semibold mb-4">API päringutööriist</h3>
+          <p class="text-sm text-gray-400 mb-6">Saad teha käsitsi GET, POST, PATCH ja DELETE päringuid ükskõik millisele ressursile.</p>
+
+          <div class="grid md:grid-cols-5 gap-3 mb-3">
+            <select id="api-method" onchange="toggleApiBodyInput()" class="bg-gray-800 rounded-2xl px-4 py-3">
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="PATCH">PATCH</option>
+              <option value="DELETE">DELETE</option>
+            </select>
+            <input id="api-path" value="/assignments" placeholder="/resource/path" class="md:col-span-4 bg-gray-800 rounded-2xl px-4 py-3">
+          </div>
+
+          <textarea id="api-body" rows="8" class="w-full bg-gray-800 rounded-2xl p-4 font-mono text-sm mb-3" placeholder='{"title":"New item"}'></textarea>
+
+          <div class="flex flex-wrap gap-3 mb-5">
+            <button onclick="runApiToolRequest()" class="bg-violet-600 hover:bg-violet-700 px-5 py-3 rounded-2xl">Saada päring</button>
+            <button onclick="document.getElementById('api-body').value='';" class="border border-gray-700 px-5 py-3 rounded-2xl">Tühjenda body</button>
+          </div>
+
+          <div id="api-tool-status" class="text-sm text-gray-400 mb-3"></div>
+          <pre id="api-tool-response" class="bg-gray-950 border border-gray-800 rounded-2xl p-4 text-xs overflow-x-auto whitespace-pre-wrap">Vastus ilmub siia...</pre>
+        </div>
+      `;
+      toggleApiBodyInput();
+    }
+
+    async function runApiToolRequest() {
+      const method = document.getElementById("api-method").value;
+      const path = document.getElementById("api-path").value.trim();
+      const bodyText = document.getElementById("api-body").value.trim();
+      const statusEl = document.getElementById("api-tool-status");
+      const responseEl = document.getElementById("api-tool-response");
+
+      if (!path.startsWith("/")) {
+        statusEl.textContent = "Path peab algama / märgiga.";
+        statusEl.className = "text-sm text-red-400 mb-3";
+        return;
+      }
+
+      let payload = null;
+      if (method === "POST" || method === "PATCH") {
+        if (bodyText) {
+          try {
+            payload = JSON.parse(bodyText);
+          } catch (error) {
+            statusEl.textContent = `Body JSON on vigane: ${error.message}`;
+            statusEl.className = "text-sm text-red-400 mb-3";
+            return;
+          }
+        } else {
+          payload = {};
+        }
+      }
+
+      const result = await apiRaw(method, path, payload);
+      statusEl.textContent = `${method} ${path} -> ${result.status}`;
+      statusEl.className = `text-sm mb-3 ${result.ok ? "text-emerald-300" : "text-red-400"}`;
+      responseEl.textContent = prettyJson(result.data);
     }
 
     function hideModal() { document.getElementById("modal").classList.add("hidden"); }
@@ -263,13 +473,14 @@
       document.querySelectorAll('[id^="view-"]').forEach(v => v.classList.add("hidden"));
       document.getElementById(`view-${view}`).classList.remove("hidden");
       document.getElementById("page-title").textContent = {
-        dashboard: "Avaleht", assignments: "Minu ülesanded", tags: "Tag'id", comments: "Kommentaarid"
+        dashboard: "Avaleht", assignments: "Minu ülesanded", tags: "Tag'id", comments: "Kommentaarid", api: "API tööriist"
       }[view];
 
       if (view === "dashboard") loadDashboard();
       if (view === "assignments") loadAssignments();
       if (view === "tags") loadTags();
       if (view === "comments") loadComments();
+      if (view === "api") loadApiTool();
     }
 
     async function resetDatabase() {

@@ -212,6 +212,22 @@ def _schema_validation_error_response(details, duration_seconds):
     return response, 422
 
 
+def _status_from_error_payload(payload, default_status=400):
+    if not isinstance(payload, dict):
+        return default_status
+
+    raw_status = payload.get("status")
+    try:
+        status = int(raw_status)
+    except (TypeError, ValueError):
+        return default_status
+
+    if status < 100 or status > 599:
+        return default_status
+
+    return status
+
+
 def _conflict_response(full_path, message, details=None):
     response = jsonify({
         "error": "CONFLICT",
@@ -555,9 +571,10 @@ async def _handle_collection_limit_request(
                 duration = time.time() - start_time
                 return _schema_validation_error_response(parent_data.get("details"), duration)
             duration = time.time() - start_time
+            status = _status_from_error_payload(parent_data, default_status=404)
             response = jsonify(parent_data)
             response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
-            return response, 404
+            return response, status
 
     # Build current collection state from table first, then cache fallback.
     current_data = database.get_dynamic_resource_by_path(full_path)
@@ -1154,10 +1171,10 @@ async def handle_api_request(subpath):
         dynamic_query_params=dynamic_query_params,
     )
 
-    if "error" not in new_data:
+    if not (isinstance(new_data, dict) and new_data.get("error")):
         new_data = _normalize_ai_payload_for_path(full_path, new_data)
 
-    if "error" not in new_data:
+    if not (isinstance(new_data, dict) and new_data.get("error")):
         is_valid, mismatch_details = database.validate_payload_against_existing_schema(
             full_path,
             new_data,
@@ -1167,12 +1184,18 @@ async def handle_api_request(subpath):
             duration = time.time() - start_time
             return _schema_validation_error_response(mismatch_details, duration)
     
-    if "error" not in new_data:
+    if not (isinstance(new_data, dict) and new_data.get("error")):
         new_data = database.save_structured_resource(full_path, new_data)
     
     duration = time.time() - start_time  # AI time + any DB save time in second
     print(f"AI GENERAATOR: Valmis {duration:.2f} sekundiga.")
     
+    if isinstance(new_data, dict) and new_data.get("error"):
+        status = _status_from_error_payload(new_data, default_status=400)
+        response = jsonify(new_data)
+        response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
+        return response, status
+
     response = jsonify(new_data)
     response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
     return response, 200
