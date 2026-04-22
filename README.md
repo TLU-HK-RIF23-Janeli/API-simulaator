@@ -4,10 +4,10 @@ See projekt on dünaamiline REST API simulaator, mis kasutab generatiivset tehis
 
 Rakendus toetab:
 - automaatset andmete genereerimist kasutaja soovitud lõpp-punktidele
-- SQLite-põhist cache'i ja dünaamilisi tabeleid
+- SQLite-põhiseid dünaamilisi tabeleid
 - andmeskeemi valideerimist (uued kirjed peavad sobituma olemasoleva struktuuriga)
 - kustutatud ressursside blacklisti (et neid ei genereeritaks uuesti)
-- kollektsioonipäringute limit parameetrit
+- otsinguparameetrite kasutamist
 
 ## Käivitamine Dockeri konteineris
 - Loo .env fail näidise põhjal
@@ -26,18 +26,19 @@ Rakendus toetab:
 - pytest
 
 ## Kaustastruktuur
-Töökood asub kaustas code.
+Rakendus asub kaustas code.
 
 Peamised failid:
-- code/main.py - Flask API lõpp-punktid
-- code/database.py - cache, dünaamilised tabelid, andmeskeemi (schema) velideerimine, blacklist
-- code/ai_client.py - AI päringud (OpenAI voi Ollama OpenAI-compatible endpoint)
+- code/main.py - Flask API lõpp-punktid, rakenduse põhiloogika
+- code/database.py - dünaamilised tabelid, andmete valideerimine ja salvestamine/muutmine/kustutamine, must nimekiri (blacklist)
+- code/ai_client.py - AI päringud (OpenAI GPT 4o-mini) ja kõik sellega seonduv
 - code/reset_db.py - andmebaasi nullimine
 - code/tests - testid
+- code/templates - kaustas on testrakenduse ja dokumentatsiooni HTML failid
 
 ## Nõuded
 - Python 3.10+
-- (Valikuline) OpenAI API voti
+- (Valikuline) OpenAI API võti
   - või lokaalne Ollama server OpenAI-compatible endpointiga
 
 ## Seadistamine (Windows / PowerShell)
@@ -56,11 +57,13 @@ Failis code/.env:
 - USE_OPENAI=true kasutab OpenAI-t
 - USE_OPENAI=false kasutab lokaalset Ollama endpointi
 - OPENAI_API_KEY vajalik ainult siis, kui USE_OPENAI=true
+- API_SPECIFICATION sisaldab esialgset infot selle kohta, mis API-t simuleeritakse
 
 Näidis:
 
 USE_OPENAI=true
 OPENAI_API_KEY=your-api-key
+API_SPECIFICATION="You are ablog API. Key domains: posts, comments and users.
 
 ## Rakenduse käivitamine
 Kaustas code:
@@ -73,27 +76,32 @@ Vaikimisi aadress:
 ## Lõpp-punktid
 
 ### GET /
-Tagastab lihtsa API tutvustuse
+Tagastab API tutvustuse
+
+### GET /documentation
+Tagastab API hetkeseisu (ressursid, spetsifikatsioon, ka kõik staatilised lõpp-punktid jms)
+
+### GET /tester
+Seal asub koolitööde haldamise näidisrakendus ning API tööriist, millega API-t testida. NB! Koolitööde rakenduse töötamiseks taasta vaikeseaded ning tühjenda andmebaas.
 
 ### GET / path
 Otsib andmed järgmises järjekorras:
-1. cached_responses
-2. dünaamilised tabelid
-3. AI genereerimine
+1. dünaamilised tabelid
+2. AI genereerimine
 
 Oluline:
-- kui path on blacklistis, tagastatakse 404 RESOURCE_DELETED
-- nested collection puhul (nt /books/999/comments) genereeritakse parent ressurss tehisintellekti poolt automaatselt
+- kui tee on mustas nimekirjas, tagastatakse 404 RESOURCE_DELETED
+- pesastatud kollektsiooni puhul (nt /books/999/comments) genereeritakse vanemressurss tehisintellekti poolt automaatselt
 - andmestruktuuri vastuolu korral tagastatakse 422 SCHEMA_MISMATCH
-- kui tegemist on esimese genereerimisega, saab kasutaja anda schema query-parameetriga ette oodatud väljad
+- kui tegemist on esimese genereerimisega, saab kasutaja anda schema päringu (query) parameetriga ette oodatud väljad
 
-Schema query-parameeter (esimene genereerimine):
+Schema päringuparameeter (esimene genereerimine):
 - `GET /movies?schema=title,genre`
 - `GET /movies?schema=title&schema=genre`
 - kui tabeli schema on juba olemas ja antud schema erineb olemasolevast, tagastatakse 409 SCHEMA_CONFLICT
 
 ### GET / collection?limit=N
-Toetatud ainult kollektsioonidel (path ei tohi lõppeda numbriga).
+Toetatud ainult kollektsioonidel (tee ei tohi lõppeda numbriga).
 
 **Reeglid**:
 - N peab olema positiivne täisarv
@@ -105,39 +113,39 @@ Toetatud ainult kollektsioonidel (path ei tohi lõppeda numbriga).
 Lisab uue kirje.
 
 Reeglid:
-- POST item endpointile (nt /books/1) on keelatud (403)
-- request body peab olema korrektne JSON
+- POST item lõpp-punktile (nt /books/1) on keelatud (403)
+- päringukeha (request body) peab olema korrektne JSON
 - id genereeritakse automaatselt, kui puudub
-- nested kollektsioonis lisatakse parent foreign key automaatselt (nt book_id)
-- kui schema on juba olemas, peab payload schema'ga sobima
+- pesastatud kollektsioonis lisatakse parent foreign key automaatselt (nt book_id)
+- kui andmeskeem on juba olemas, peavad andmed sellega sobima
 
 ### PATCH / item
-Uuendab olemasolevat itemit.
+Uuendab olemasolevat üksikobjekti.
 
 Reeglid:
-- lubatud ainult pathidele, mis lõpevad numbriga
-- kustutatud (blacklistis) itemit ei saa uuendada (404 RESOURCE_DELETED)
+- lubatud ainult teedele, mis lõpevad numbriga
+- kustutatud objekti ei saa uuendada (404 RESOURCE_DELETED)
 - payload id peab klappima path id-ga
-- nested puhul peab parent fk klappima pathiga
+- pesastatud objekti puhul peab parent fk klappima tees olevaga
 - tundmatud väljad annavad 422 SCHEMA_MISMATCH
 
 ### DELETE / item
-Kustutab itemi ja lisab selle blacklisti.
+Kustutab objekti ja lisab selle musta nimekirja.
 
 Reeglid:
-- lubatud ainult item endpointidel (numbriline lopp)
+- lubatud ainult üksikobjekti lõpp-punktidel (numbriline lõpp)
 - kollektsiooni kustutamine on keelatud (403)
-- kui item puudub, tagastatakse 404
-- korduv kustutamine tagastab 200 koos already_deleted=true
-- nested itemi kustutamisel blokeeritakse ka alias (nt /comments/1)
+- kui objekt puudub, tagastatakse 404
+- korduv kustutamine tagastab 200 koos sõnumiga already_deleted=true
+- pesastatud objekti kustutamisel blokeeritakse ka alias (nt /comments/1)
 
 ### DELETE /delete-all
-Kustutab kogu andmebaasi (cache + blacklist) ja initsialiseerib uuesti.
+Kustutab kogu andmebaasi (tables + blacklist) ja initsialiseerib uuesti.
 
 Teised meetodid sellele endpointile tagastavad 405.
 
 ## Vastuse päised
-Rakendus lisab ajamõõtmise paiseid:
+Rakendus lisab ajamõõtmise päiseid:
 - X-Response-Time-MS (kui vastus tuleb otse rakenduselt)
 - X-Response-Time-Seconds (kui vastus genereeritakse tehisintellekti poolt)
 
@@ -156,8 +164,8 @@ Testid katavad muuhulgas:
 - cache hit/miss loogika
 - nested ressursside parent context
 - schema mismatch käitumine
-- delete + blacklist kaitumine
-- POST/PUT valideerimine
+- delete + blacklist käitumine
+- POST/PATCH valideerimine
 - limit parameetri käitumine
 
 ## Levinud probleemid
