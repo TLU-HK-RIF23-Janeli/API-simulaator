@@ -26,6 +26,24 @@
     <section class="bg-zinc-900 rounded-3xl p-6 mb-8">
       <h2 class="text-2xl font-semibold mb-4">Aktiivne API spetsifikatsioon</h2>
       <div id="activeSpecBox"></div>
+      <div class="mt-5">
+        <label for="specEditor" class="block text-sm text-zinc-400 mb-2">Muuda aktiivset spetsifikatsiooni</label>
+        <textarea
+          id="specEditor"
+          rows="5"
+          class="w-full bg-zinc-950 border border-zinc-800 rounded-2xl p-3 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          placeholder="Sisesta uus API spetsifikatsioon..."
+        ></textarea>
+        <div class="mt-3 flex flex-wrap gap-3">
+          <button id="saveSpecBtn" class="bg-emerald-500 hover:bg-emerald-600 text-zinc-900 font-semibold px-4 py-2 rounded-xl">
+            Salvesta spetsifikatsioon
+          </button>
+          <button id="resetSpecBtn" class="bg-zinc-700 hover:bg-zinc-600 text-zinc-100 font-semibold px-4 py-2 rounded-xl">
+            Tühjenda ja kasuta .env vaikimisi
+          </button>
+        </div>
+        <p id="specActionStatus" class="text-sm mt-3 text-zinc-400"></p>
+      </div>
     </section>
 
     <section class="bg-zinc-900 rounded-3xl p-6 mb-8">
@@ -81,6 +99,9 @@
 
     function renderActiveSpecification(specification) {
       const value = (specification || "").trim();
+      const editor = document.getElementById("specEditor");
+      editor.value = value;
+
       if (!value) {
         document.getElementById("activeSpecBox").innerHTML = "<p class='text-zinc-400'>Aktiivne spetsifikatsioon puudub.</p>";
         return;
@@ -89,6 +110,50 @@
       document.getElementById("activeSpecBox").innerHTML = `
         <pre class="bg-zinc-950 rounded-2xl p-4 text-sm text-zinc-200 overflow-x-auto whitespace-pre-wrap break-words">${escapeHtml(value)}</pre>
       `;
+    }
+
+    function setSpecActionStatus(message, isError = false) {
+      const statusEl = document.getElementById("specActionStatus");
+      statusEl.textContent = message;
+      statusEl.className = `text-sm mt-3 ${isError ? "text-red-400" : "text-emerald-300"}`;
+    }
+
+    async function updateSpecification(specification) {
+      const response = await fetch("/specification", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ specification })
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.message || `Specification update failed: ${response.status}`);
+      }
+
+      return data;
+    }
+
+    async function handleSaveSpecification() {
+      const value = document.getElementById("specEditor").value;
+      try {
+        await updateSpecification(value);
+        setSpecActionStatus("Spetsifikatsioon salvestatud.");
+        await loadDocumentationState();
+      } catch (error) {
+        setSpecActionStatus(`Viga salvestamisel: ${error.message}`, true);
+      }
+    }
+
+    async function handleResetSpecification() {
+      try {
+        await updateSpecification("");
+        setSpecActionStatus("Spetsifikatsioon tühjendati ja vaikimisi .env väärtus taastati.");
+        await loadDocumentationState();
+      } catch (error) {
+        setSpecActionStatus(`Viga tühjendamisel: ${error.message}`, true);
+      }
     }
 
     function renderSummary(totals) {
@@ -251,6 +316,8 @@
     }
 
     document.getElementById("refreshBtn").addEventListener("click", initialize);
+    document.getElementById("saveSpecBtn").addEventListener("click", handleSaveSpecification);
+    document.getElementById("resetSpecBtn").addEventListener("click", handleResetSpecification);
     initialize();
   </script>
 </body>

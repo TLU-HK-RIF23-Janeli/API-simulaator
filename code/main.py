@@ -578,17 +578,28 @@ def set_specification():
         }), 400
 
     specification = body.get("specification")
-    if not isinstance(specification, str) or not specification.strip():
+    if not isinstance(specification, str):
         return jsonify({
             "error": "BAD_REQUEST",
-            "message": "JSON body must include a non-empty 'specification' field of type string.",
+            "message": "JSON body must include a 'specification' field of type string.",
             "status": 400,
         }), 400
 
-    ai_client.user_api_spec = specification.strip()
-    print(f"API specification updated to: {ai_client.user_api_spec}")
+    normalized_specification = specification.strip()
+    if normalized_specification:
+        ai_client.user_api_spec = normalized_specification
+        print(f"API specification updated to: {ai_client.user_api_spec}")
+        return jsonify({
+            "message": "API specification updated successfully.",
+            "api_specification": ai_client.get_api_specification(),
+            "status": 200,
+        }), 200
+
+    ai_client.user_api_spec = None
+    print("API specification reset to default from environment.")
     return jsonify({
-        "message": "API specification updated successfully.",
+        "message": "API specification reset to environment default.",
+        "api_specification": ai_client.get_api_specification(),
         "status": 200,
     }), 200
 
