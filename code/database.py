@@ -595,7 +595,7 @@ def get_documentation_state_snapshot():
             data_columns = [
                 column
                 for column in columns
-                if column not in {"row_id", "source_path", "created_at"}
+                if column not in {"row_id", "source_path"}
             ]
 
             cursor.execute(f'SELECT COUNT(*) FROM "{table_name}"')
@@ -612,7 +612,7 @@ def get_documentation_state_snapshot():
                     sample_items.append({
                         key: value
                         for key, value in item.items()
-                        if key not in {"row_id", "source_path", "created_at"}
+                        if key not in {"row_id", "source_path"}
                     })
 
                 cursor.execute(
