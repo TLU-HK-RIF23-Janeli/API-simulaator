@@ -21,3 +21,5 @@ Thumbs.db
 # IDE settings
 .vscode/
 .idea/
+
+api_spec_override.json
