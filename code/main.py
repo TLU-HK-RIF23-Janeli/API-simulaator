@@ -532,11 +532,11 @@ def _documentation_static_spec():
         ],
     }
 
-
 def _documentation_state_payload():
     state = database.get_documentation_state_snapshot()
     return {
         "specification": _documentation_static_spec(),
+        "active_api_specification": ai_client.get_api_specification(),
         "resources": state.get("resources", []),
         "blacklisted_paths": state.get("blacklisted_paths", []),
         "totals": {
@@ -600,9 +600,9 @@ def get_specification():
         "status": 200,
     }), 200
 
-@app.route('/tester2.html')
+@app.route('/tester', methods = ['GET'])
 def tester():
-    return render_template('tester2.html')
+    return render_template('tester2.html'), 200
 
 @app.route('/delete-all', methods=['DELETE'])
 def delete_all():
@@ -721,6 +721,7 @@ async def post_resource(subpath):
     })
     response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
     return response, 201
+
 
 @app.route('/<path:subpath>', methods=['PATCH'])
 def patch_resource(subpath):

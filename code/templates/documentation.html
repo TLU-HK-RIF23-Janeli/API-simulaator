@@ -24,6 +24,11 @@
     <section class="grid md:grid-cols-3 gap-4 mb-10" id="summaryCards"></section>
 
     <section class="bg-zinc-900 rounded-3xl p-6 mb-8">
+      <h2 class="text-2xl font-semibold mb-4">Aktiivne API spetsifikatsioon</h2>
+      <div id="activeSpecBox"></div>
+    </section>
+
+    <section class="bg-zinc-900 rounded-3xl p-6 mb-8">
       <h2 class="text-2xl font-semibold mb-4">Endpointid</h2>
       <div id="endpointList" class="space-y-3"></div>
     </section>
@@ -72,6 +77,18 @@
         : "bg-zinc-700 text-zinc-200";
 
       return `<span class="${color} text-xs font-semibold px-3 py-1 rounded-full">${escapeHtml(type)}</span>`;
+    }
+
+    function renderActiveSpecification(specification) {
+      const value = (specification || "").trim();
+      if (!value) {
+        document.getElementById("activeSpecBox").innerHTML = "<p class='text-zinc-400'>Aktiivne spetsifikatsioon puudub.</p>";
+        return;
+      }
+
+      document.getElementById("activeSpecBox").innerHTML = `
+        <pre class="bg-zinc-950 rounded-2xl p-4 text-sm text-zinc-200 overflow-x-auto whitespace-pre-wrap break-words">${escapeHtml(value)}</pre>
+      `;
     }
 
     function renderSummary(totals) {
@@ -216,6 +233,7 @@
       }
 
       const data = await response.json();
+      renderActiveSpecification(data.active_api_specification || "");
       renderSummary(data.totals || { resource_count: 0, blacklist_count: 0 });
       renderEndpoints((data.specification && data.specification.endpoints) || []);
       renderQueryParams((data.specification && data.specification.query_parameters) || []);
