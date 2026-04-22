@@ -1,5 +1,6 @@
 import time
 import re
+import json
 from flask import Flask, request, jsonify, render_template
 import database
 import ai_client
@@ -298,7 +299,20 @@ def _parse_user_schema_or_error(full_path):
     - ?schema=title,author
     - ?schema=title&schema=author
     """
-    schema_values = request.args.getlist("schema")
+    try:
+        schema_values = request.args.getlist("schema")
+    except Exception as exc:
+        return None, (
+            jsonify({
+                "error": "BAD_REQUEST",
+                "message": "Failed to parse query parameter 'schema'.",
+                "status": 400,
+                "path": full_path,
+                "details": str(exc),
+            }),
+            400,
+        )
+
     if not schema_values:
         return None, None
 
@@ -333,6 +347,143 @@ def _parse_user_schema_or_error(full_path):
     return normalized, None
 
 
+def _parse_dynamic_query_params():
+    """
+    Parses dynamic query parameters while excluding reserved parameters.
+    Returned values are normalized for stable filtering/generation behavior.
+    """
+    reserved_params = {"limit", "schema"}
+    parsed = {}
+
+    for raw_key, values in request.args.lists():
+        try:
+            if raw_key in reserved_params:
+                continue
+
+            key = str(raw_key).strip()
+            if not key:
+                continue
+
+            normalized_values = []
+            for value in values:
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if text:
+                    normalized_values.append(text)
+
+            if not normalized_values:
+                continue
+
+            if len(normalized_values) == 1:
+                parsed[key] = normalized_values[0]
+            else:
+                parsed[key] = normalized_values
+        except Exception:
+            # Ignore malformed single query entries but keep valid ones.
+            continue
+
+    return parsed
+
+
+def _to_comparable_text(value):
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _query_key_candidates(query_key):
+    key = str(query_key).strip()
+    if not key:
+        return []
+
+    candidates = [key]
+    if key.endswith("s") and len(key) > 1:
+        candidates.append(key[:-1])
+    else:
+        candidates.append(f"{key}s")
+
+    # Preserve order while removing duplicates.
+    return list(dict.fromkeys(candidates))
+
+
+def _value_tokens(value):
+    if value is None:
+        return []
+
+    if isinstance(value, list):
+        tokens = []
+        for item in value:
+            tokens.extend(_value_tokens(item))
+        return tokens
+
+    text = _to_comparable_text(value).strip().lower()
+    if not text:
+        return []
+
+    # Support common CSV-like storage patterns (e.g. "breakfast, main course").
+    if "," in text:
+        return [part.strip() for part in text.split(",") if part.strip()]
+
+    return [text]
+
+
+def _apply_dynamic_query_filters(full_path, data, dynamic_query_params):
+    if not dynamic_query_params or not _is_collection_path(full_path):
+        return data
+
+    items = _extract_collection_items(full_path, data)
+    if not items:
+        return []
+
+    normalized_filters = {
+        key: value if isinstance(value, list) else [value]
+        for key, value in dynamic_query_params.items()
+    }
+
+    filtered = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        matches_all = True
+        for key, accepted_values in normalized_filters.items():
+            match_field = None
+            for candidate_key in _query_key_candidates(key):
+                if candidate_key in item:
+                    match_field = candidate_key
+                    break
+
+            if match_field is None:
+                matches_all = False
+                break
+
+            item_tokens = set(_value_tokens(item.get(match_field)))
+            accepted_texts = {
+                _to_comparable_text(value).strip().lower()
+                for value in accepted_values
+                if _to_comparable_text(value).strip()
+            }
+            if not item_tokens:
+                matches_all = False
+                break
+
+            if not item_tokens.intersection(accepted_texts):
+                matches_all = False
+                break
+
+        if matches_all:
+            filtered.append(item)
+
+    return filtered
+
+
 def _resolve_expected_schema_or_error(path, user_schema):
     """
     Resolves schema used for AI generation.
@@ -364,7 +515,13 @@ def _resolve_expected_schema_or_error(path, user_schema):
     return [], None
 
 
-async def _handle_collection_limit_request(full_path, requested_limit, start_time, user_expected_schema=None):
+async def _handle_collection_limit_request(
+    full_path,
+    requested_limit,
+    start_time,
+    user_expected_schema=None,
+    dynamic_query_params=None,
+):
     # Ensure nested parent exists for endpoints like /books/2/comments?limit=7
     parent_item_path = _parent_item_path_for_nested_collection(full_path)
     if parent_item_path and not _resource_exists(parent_item_path):
@@ -407,6 +564,7 @@ async def _handle_collection_limit_request(full_path, requested_limit, start_tim
 
     current_data = _normalize_public_response(current_data) if current_data is not None else []
     current_items = _extract_collection_items(full_path, current_data)
+    current_items = _apply_dynamic_query_filters(full_path, current_items, dynamic_query_params)
 
     missing_count = requested_limit - len(current_items)
     if missing_count > 0:
@@ -429,6 +587,7 @@ async def _handle_collection_limit_request(full_path, requested_limit, start_tim
             parent_data=generation_context,
             expected_schema=expected_schema,
             requested_count=missing_count,
+            dynamic_query_params=dynamic_query_params,
         )
 
         if "error" in generated_data:
@@ -457,6 +616,7 @@ async def _handle_collection_limit_request(full_path, requested_limit, start_tim
         refreshed = database.get_dynamic_resource_by_path(full_path)
         refreshed = _normalize_public_response(refreshed) if refreshed is not None else []
         current_items = _extract_collection_items(full_path, refreshed)
+        current_items = _apply_dynamic_query_filters(full_path, current_items, dynamic_query_params)
 
     duration = (time.time() - start_time) * 1000
     response = jsonify(current_items[:requested_limit])
@@ -518,6 +678,12 @@ def _documentation_static_spec():
                 "applies_to": "First generation GET requests",
                 "type": "comma separated values or repeated parameter",
                 "description": "Constrains generated schema fields.",
+            },
+            {
+                "name": "<any_other_param>",
+                "applies_to": "GET collection endpoints",
+                "type": "string or repeated parameter",
+                "description": "Handled dynamically as filter/constraint and forwarded to AI generation context.",
             },
         ],
         "status_codes": [
@@ -587,15 +753,15 @@ def set_specification():
 
     normalized_specification = specification.strip()
     if normalized_specification:
-        ai_client.user_api_spec = normalized_specification
-        print(f"API specification updated to: {ai_client.user_api_spec}")
+        saved_specification = ai_client.save_api_specification(normalized_specification)
+        print(f"API specification updated to: {saved_specification}")
         return jsonify({
             "message": "API specification updated successfully.",
             "api_specification": ai_client.get_api_specification(),
             "status": 200,
         }), 200
 
-    ai_client.user_api_spec = None
+    ai_client.reset_api_specification()
     print("API specification reset to default from environment.")
     return jsonify({
         "message": "API specification reset to environment default.",
@@ -856,23 +1022,34 @@ async def handle_api_request(subpath):
         response.headers['X-Response-Time-MS'] = f"{duration:.2f}"
         return response, 404
 
-    limit_values = request.args.getlist("limit")
-    if len(limit_values) > 1:
+    try:
+        limit_values = request.args.getlist("limit")
+        if len(limit_values) > 1:
+            return jsonify({
+                "error": "BAD_REQUEST",
+                "message": "Query parameter 'limit' must be provided at most once.",
+                "status": 400,
+                "path": full_path,
+            }), 400
+
+        limit_raw = limit_values[0] if limit_values else None
+        requested_limit, limit_error = _parse_limit_or_error(limit_raw, full_path)
+        if limit_error is not None:
+            return limit_error
+
+        user_expected_schema, schema_parse_error = _parse_user_schema_or_error(full_path)
+        if schema_parse_error is not None:
+            return schema_parse_error
+
+        dynamic_query_params = _parse_dynamic_query_params()
+    except Exception as exc:
         return jsonify({
-            "error": "BAD_REQUEST",
-            "message": "Query parameter 'limit' must be provided at most once.",
-            "status": 400,
+            "error": "INTERNAL_SERVER_ERROR",
+            "message": "Failed to parse query parameters.",
+            "status": 500,
             "path": full_path,
-        }), 400
-
-    limit_raw = limit_values[0] if limit_values else None
-    requested_limit, limit_error = _parse_limit_or_error(limit_raw, full_path)
-    if limit_error is not None:
-        return limit_error
-
-    user_expected_schema, schema_parse_error = _parse_user_schema_or_error(full_path)
-    if schema_parse_error is not None:
-        return schema_parse_error
+            "details": str(exc),
+        }), 500
 
     if requested_limit is not None:
         return await _handle_collection_limit_request(
@@ -880,6 +1057,7 @@ async def handle_api_request(subpath):
             requested_limit,
             start_time,
             user_expected_schema=user_expected_schema,
+            dynamic_query_params=dynamic_query_params,
         )
     
     if user_expected_schema is not None:
@@ -903,6 +1081,7 @@ async def handle_api_request(subpath):
     dynamic_data = database.get_dynamic_resource_by_path(full_path)
     if dynamic_data is not None:
         dynamic_data = _normalize_public_response(dynamic_data)
+        dynamic_data = _apply_dynamic_query_filters(full_path, dynamic_data, dynamic_query_params)
         duration = (time.time() - start_time) * 1000
         print(f"TABLE HIT: {full_path} kätte saadud {duration:.2f} ms-ga.")
 
@@ -972,6 +1151,7 @@ async def handle_api_request(subpath):
         parent_path=parent_path,
         parent_data=parent_data,
         expected_schema=expected_schema,
+        dynamic_query_params=dynamic_query_params,
     )
 
     if "error" not in new_data:

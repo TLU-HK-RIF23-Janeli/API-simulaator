@@ -2,6 +2,7 @@ import time
 import os
 import json
 import math
+from pathlib import Path
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
@@ -21,6 +22,48 @@ else:
     MODEL = "llama3"
 
 user_api_spec = None
+SPEC_OVERRIDE_FILE = Path(__file__).resolve().parent / "api_spec_override.json"
+
+
+def _load_persisted_api_specification():
+    if not SPEC_OVERRIDE_FILE.exists():
+        return None
+
+    try:
+        payload = json.loads(SPEC_OVERRIDE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    specification = payload.get("api_specification") if isinstance(payload, dict) else None
+    if isinstance(specification, str) and specification.strip():
+        return specification.strip()
+
+    return None
+
+
+def save_api_specification(specification):
+    normalized = specification.strip()
+    SPEC_OVERRIDE_FILE.write_text(
+        json.dumps({"api_specification": normalized}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    global user_api_spec
+    user_api_spec = normalized
+    return user_api_spec
+
+
+def reset_api_specification():
+    global user_api_spec
+    user_api_spec = None
+
+    try:
+        SPEC_OVERRIDE_FILE.unlink()
+    except FileNotFoundError:
+        pass
+
+
+user_api_spec = _load_persisted_api_specification()
 
 
 def get_api_specification(user_api_spec_override=None):
@@ -82,7 +125,14 @@ def _extract_response_text(response):
                 return text_value
     return None
 
-async def get_ai_content(path, parent_path=None, parent_data=None, expected_schema=None, requested_count=None):
+async def get_ai_content(
+    path,
+    parent_path=None,
+    parent_data=None,
+    expected_schema=None,
+    requested_count=None,
+    dynamic_query_params=None,
+):
     """
     Requests JSON content from the AI based on the provided URL path.
     """
@@ -117,11 +167,21 @@ async def get_ai_content(path, parent_path=None, parent_data=None, expected_sche
             "Do not repeat items already present in the context.\n"
         )
 
+    query_block = ""
+    if dynamic_query_params:
+        query_block = (
+            "Dynamic query parameters for this request:\n"
+            f"{json.dumps(dynamic_query_params, ensure_ascii=False)}\n"
+            "Treat these as active filters/constraints when generating the response. "
+            "If the endpoint returns a list, generated records should satisfy these query constraints.\n"
+        )
+
     user_input = (
         f"Generate a realistic JSON response for path: {path}.\n"
         f"{context_block}"
         f"{schema_block}"
         f"{count_block}"
+        f"{query_block}"
     )
 
     base_instructions = _build_base_instructions()

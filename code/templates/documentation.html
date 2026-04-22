@@ -41,6 +41,9 @@
           <button id="resetSpecBtn" class="bg-zinc-700 hover:bg-zinc-600 text-zinc-100 font-semibold px-4 py-2 rounded-xl">
             Tühjenda ja kasuta .env vaikimisi
           </button>
+          <button id="resetDbBtn" class="bg-rose-600 hover:bg-rose-700 text-zinc-100 font-semibold px-4 py-2 rounded-xl">
+            Tühjenda andmebaas
+          </button>
         </div>
         <p id="specActionStatus" class="text-sm mt-3 text-zinc-400"></p>
       </div>
@@ -147,12 +150,36 @@
     }
 
     async function handleResetSpecification() {
+      const confirmed = window.confirm("Kas oled kindel, et soovid API spetsifikatsiooni tühjendada?");
+      if (!confirmed) {
+        return;
+      }
       try {
         await updateSpecification("");
         setSpecActionStatus("Spetsifikatsioon tühjendati ja vaikimisi .env väärtus taastati.");
         await loadDocumentationState();
       } catch (error) {
         setSpecActionStatus(`Viga tühjendamisel: ${error.message}`, true);
+      }
+    }
+
+    async function handleResetDatabase() {
+      const confirmed = window.confirm("Kas oled kindel, et soovid andmebaasi tühjendada?");
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        const response = await fetch("/delete-all", { method: "DELETE" });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.message || `Database reset failed: ${response.status}`);
+        }
+
+        setSpecActionStatus("Andmebaas tühjendati edukalt.");
+        await loadDocumentationState();
+      } catch (error) {
+        setSpecActionStatus(`Viga andmebaasi tühjendamisel: ${error.message}`, true);
       }
     }
 
@@ -318,6 +345,7 @@
     document.getElementById("refreshBtn").addEventListener("click", initialize);
     document.getElementById("saveSpecBtn").addEventListener("click", handleSaveSpecification);
     document.getElementById("resetSpecBtn").addEventListener("click", handleResetSpecification);
+    document.getElementById("resetDbBtn").addEventListener("click", handleResetDatabase);
     initialize();
   </script>
 </body>
