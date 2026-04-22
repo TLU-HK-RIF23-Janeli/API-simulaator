@@ -81,6 +81,9 @@ Tagastab API tutvustuse
 ### GET /documentation
 Tagastab API hetkeseisu (ressursid, spetsifikatsioon, ka kõik staatilised lõpp-punktid jms)
 
+### GET/POST /specification
+Tagastab ning võimaldab muuta API kirjeldust, mida rakendus simuleerib.
+
 ### GET /tester
 Seal asub koolitööde haldamise näidisrakendus ning API tööriist, millega API-t testida. NB! Koolitööde rakenduse töötamiseks taasta vaikeseaded ning tühjenda andmebaas.
 
