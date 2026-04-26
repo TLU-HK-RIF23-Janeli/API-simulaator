@@ -37,7 +37,7 @@
                         <p class="text-sm text-zinc-400 mb-4">Esmalt tuleb määrata API kirjeldus, mis defineerib, mis API-t rakendus simuleerib.</p>
                         <h3 class="font-semibold mb-2">Kuidas?</h3>
                         <p class="text-sm text-zinc-400">Saada POST päring lõpp-punktile <code>/specification</code>:</p>
-                        <code class="block bg-zinc-800 text-sm p-3 rounded-lg mb-2">{"specification":"API description"}</code>
+                        <code class="block bg-zinc-800 text-sm p-3 rounded-lg mb-2">{"specification":"You are an expert Mock API for Student Homework Management. Key domains: Users (Admin/Student), Assignments (Deadlines/Content), Tags (Academic Platforms), Comments, and Personal Task Statuses. Generate consistent, linked data suitable for testing a student-facing web application."}</code>
                     </div>
                     <div class="bg-zinc-900 rounded-3xl p-6">
                         <h3 class="font-semibold mb-2">2. TI andmete generatsioon</h3>
@@ -54,7 +54,7 @@
                     </div>
                     <div class="bg-zinc-900 rounded-3xl p-6">
                         <h3 class="font-semibold mb-2">4. Andmeskeemi kontroll</h3>
-                        <p class="text-sm text-zinc-400">?schema= parameeter võimaldab tehisintellektile edastada täpse väljade nimekirja, 
+                        <p class="text-sm text-zinc-400"><code class="block bg-zinc-800 text-sm p-3 rounded-lg mb-2">?schema=title,deadline,status</code> Parameeter võimaldab tehisintellektile edastada täpse väljade nimekirja, 
                             mis ressursil olema peaks. Nii on võimalik tagada andmestruktuuri stabiilsus ka tühja andmebaasi puhul.
                         </p>
                     </div>
