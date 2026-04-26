@@ -34,9 +34,9 @@
         <a onclick="showView('assignments')" class="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-gray-800 cursor-pointer">Minu ülesanded</a>
         <a onclick="showView('tags')" class="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-gray-800 cursor-pointer">Tag'id</a>
         <a onclick="showView('comments')" class="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-gray-800 cursor-pointer">Kommentaarid</a>
-        <a onclick="showView('api')" class="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-gray-800 cursor-pointer">API tööriist</a>
       </nav>
-
+              <a onclick="showView('api')" class="flex items-center gap-3 px-4 py-3 mb-2 rounded-2xl bg-purple-700 hover:bg-purple-500 cursor-pointer">API tööriist</a>
+      <a href="http://localhost:5000/" class="flex items-center gap-3 px-4 py-3 rounded-2xl bg-green-700 hover:bg-green-500 cursor-pointer">API dokumentatsioon</a>
       <button onclick="resetDatabase()" class="mt-auto flex items-center justify-center gap-2 text-red-400 hover:text-red-300 py-3">
         <i class="fa-solid fa-trash"></i> Kustuta kogu andmebaas
       </button>
@@ -54,6 +54,8 @@
           <i class="fa-solid fa-user-circle text-3xl text-violet-400"></i>
         </div>
       </div>
+
+      <div id="global-inline-message" class="hidden fixed top-5 left-1/2 -translate-x-1/2 z-[120] w-[min(92vw,720px)] rounded-2xl border px-4 py-3 text-sm shadow-2xl backdrop-blur-sm"></div>
 
       <div id="view-dashboard" class="p-8"></div>
       <div id="view-assignments" class="p-8 hidden"></div>
@@ -119,12 +121,58 @@
       }
     }
 
+    function stripSchemaParam(path) {
+      try {
+        const [base, query = ""] = path.split("?");
+        if (!query) return path;
+
+        const filtered = query
+          .split("&")
+          .filter(part => part && !part.startsWith("schema="));
+
+        return filtered.length ? `${base}?${filtered.join("&")}` : base;
+      } catch {
+        return path;
+      }
+    }
+
     function toArray(data) {
       if (Array.isArray(data)) return data;
       if (data && Array.isArray(data.items)) return data.items;
       if (data && Array.isArray(data.data)) return data.data;
       if (data && Array.isArray(data.results)) return data.results;
+      if (data && typeof data === "object") {
+        const keyed = [
+          "assignments", "comments", "tags", "users", "books",
+          "assignment", "comment", "tag", "user", "book"
+        ];
+        for (const key of keyed) {
+          if (Array.isArray(data[key])) return data[key];
+        }
+
+        const firstArray = Object.values(data).find(value => Array.isArray(value));
+        if (Array.isArray(firstArray)) return firstArray;
+      }
       return [];
+    }
+
+    function toItem(data) {
+      if (data && typeof data === "object" && !Array.isArray(data)) {
+        if (data.item && typeof data.item === "object" && !Array.isArray(data.item)) {
+          return data.item;
+        }
+        const fromArray = toArray(data);
+        if (fromArray.length && typeof fromArray[0] === "object") {
+          return fromArray[0];
+        }
+        return data;
+      }
+
+      if (Array.isArray(data) && data.length && typeof data[0] === "object") {
+        return data[0];
+      }
+
+      return {};
     }
 
     function toStatusLabel(status) {
@@ -144,10 +192,98 @@
     function showLoading() { document.getElementById("loading-overlay").classList.remove("hidden"); }
     function hideLoading() { document.getElementById("loading-overlay").classList.add("hidden"); }
 
+    function showApiInlineMessage(message, type = "info") {
+      const apiContainer = document.getElementById("api-inline-message");
+      const globalContainer = document.getElementById("global-inline-message");
+
+      const activeContainer = apiContainer && !document.getElementById("view-api")?.classList.contains("hidden")
+        ? apiContainer
+        : globalContainer;
+
+      const container = activeContainer;
+      if (!container) return;
+
+      const styles = {
+        success: "border-emerald-400/60 bg-emerald-500/15 text-emerald-100",
+        error: "border-rose-400/60 bg-rose-500/15 text-rose-100",
+        info: "border-sky-400/60 bg-sky-500/15 text-sky-100"
+      };
+
+      container.className = `mb-5 rounded-2xl border px-4 py-3 text-sm ${styles[type] || styles.info}`;
+      container.innerHTML = `<div class="flex items-start gap-3"><i class="fa-solid ${type === "success" ? "fa-check-circle" : type === "error" ? "fa-circle-exclamation" : "fa-circle-info"} mt-0.5"></i><p>${escapeHtml(message)}</p></div>`;
+      container.classList.remove("hidden");
+
+      if (container.id === "global-inline-message") {
+        container.className = `fixed top-5 left-1/2 -translate-x-1/2 z-[120] w-[min(92vw,720px)] rounded-2xl border px-4 py-3 text-sm shadow-2xl backdrop-blur-sm ${styles[type] || styles.info}`;
+      }
+    }
+
+    function mutationResourceLabel(path) {
+      const cleanPath = String(path || "").split("?")[0];
+      const parts = cleanPath.split("/").filter(Boolean);
+      const resource = [...parts].reverse().find(part => !/^\d+$/.test(part));
+
+      const labels = {
+        assignments: "Ulesanne",
+        comments: "Kommentaar",
+        tags: "Tag",
+        users: "Kasutaja"
+      };
+
+      return labels[resource] || "Ressurss";
+    }
+
+    function mutationSuccessMessage(method, path, status) {
+      const resource = mutationResourceLabel(path);
+      const action = {
+        POST: "loodud",
+        PATCH: "uuendatud",
+        DELETE: "kustutatud"
+      }[method] || "salvestatud";
+
+      return `${resource} ${action} (${status})`;
+    }
+
+    function mutationErrorMessage(method, path, status, detail) {
+      const resource = mutationResourceLabel(path);
+      const action = {
+        POST: "loomine",
+        PATCH: "uuendamine",
+        DELETE: "kustutamine"
+      }[method] || "toiming";
+
+      return `${resource}: ${action} ebaonnestus (${status})${detail ? ` - ${detail}` : ""}`;
+    }
+
+    function isErrorPayload(payload) {
+      return Boolean(payload && typeof payload === "object" && payload.error);
+    }
+
+    function getActiveView() {
+      const visible = [...document.querySelectorAll('[id^="view-"]')].find(v => !v.classList.contains("hidden"));
+      return visible ? visible.id.replace("view-", "") : "dashboard";
+    }
+
+    async function refreshActiveView() {
+      const active = getActiveView();
+      if (active === "dashboard") await loadDashboard();
+      if (active === "assignments") await loadAssignments();
+      if (active === "tags") await loadTags();
+      if (active === "comments") await loadComments();
+      if (active === "api") loadApiTool();
+    }
+
     async function apiRaw(method, path, body = null) {
       showLoading();
       try {
-        const opts = { method, headers: { "Content-Type": "application/json" } };
+        const normalizedMethod = String(method || "GET").toUpperCase();
+        const opts = {
+          method: normalizedMethod,
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json"
+          }
+        };
         if (body !== null && body !== undefined) opts.body = JSON.stringify(body);
         const res = await fetch(API + path, opts);
         const text = await res.text();
@@ -157,7 +293,7 @@
         } catch {
           data = text;
         }
-        console.log(`%c${method} ${path} → ${res.status}`, "color:#a78bfa");
+        console.log(`%c${normalizedMethod} ${path} → ${res.status}`, "color:#a78bfa");
         return { ok: res.ok, status: res.status, data };
       } finally {
         hideLoading();
@@ -165,10 +301,38 @@
     }
 
     async function api(method, path, body = null) {
-      const result = await apiRaw(method, path, body);
+      const normalizedMethod = String(method || "GET").toUpperCase();
+      let result = await apiRaw(normalizedMethod, path, body);
+
+      // Some backend paths can return empty payloads when schema filtering is applied.
+      // Retry once without schema for GET calls so UI still renders available AI content.
+      if (
+        normalizedMethod === "GET" &&
+        path.includes("schema=") &&
+        result.ok &&
+        Array.isArray(result.data) &&
+        result.data.length === 0
+      ) {
+        const fallbackPath = stripSchemaParam(path);
+        if (fallbackPath !== path) {
+          result = await apiRaw(normalizedMethod, fallbackPath, null);
+        }
+      }
+
       if (result.ok) {
+        if (["POST", "PATCH", "DELETE"].includes(normalizedMethod)) {
+          showApiInlineMessage(mutationSuccessMessage(normalizedMethod, path, result.status), "success");
+        }
         return result.data;
       }
+
+      if (["POST", "PATCH", "DELETE"].includes(normalizedMethod)) {
+        const detail = typeof result.data === "object"
+          ? (result.data?.message || result.data?.error || "Paring ebaonnestus")
+          : "Paring ebaonnestus";
+        showApiInlineMessage(mutationErrorMessage(normalizedMethod, path, result.status, detail), "error");
+      }
+
       if (result.data && typeof result.data === "object") {
         return result.data;
       }
@@ -245,6 +409,7 @@
 
     async function loadAssignments() {
       const data = await api("GET", `/assignments?schema=${SCHEMAS.assignments}`);
+      const assignments = toArray(data);
       const container = document.getElementById("view-assignments");
       container.innerHTML = `
         <div class="flex justify-between mb-6">
@@ -256,25 +421,25 @@
         <div id="assignments-list" class="grid grid-cols-1 gap-4"></div>
       `;
       const list = document.getElementById("assignments-list");
-      list.innerHTML = data.map(a => `
+      list.innerHTML = assignments.map(a => `
         <div onclick="openAssignment(${a.id})" class="bg-gray-900 hover:bg-gray-800 rounded-3xl p-6 cursor-pointer">
           <div class="flex justify-between items-start">
             <div class="flex-1">
-              <p class="font-semibold text-lg">${a.title}</p>
-              <p class="text-gray-400 text-sm">Tähtaeg: ${a.deadline || 'pole'}</p>
-              <p class="text-sm text-gray-300 mt-3 line-clamp-3">${a.description || 'Sisu puudub'}</p>
+              <p class="font-semibold text-lg">${escapeHtml(a.title || "Pealkirjata ülesanne")}</p>
+              <p class="text-gray-400 text-sm">Tähtaeg: ${escapeHtml(a.deadline || 'pole')}</p>
+              <p class="text-sm text-gray-300 mt-3 line-clamp-3">${escapeHtml(a.description || 'Sisu puudub')}</p>
             </div>
-            <span class="px-5 py-2 rounded-3xl text-sm ${a.status === 'done' ? 'bg-emerald-500' : 'bg-gray-600'}">${a.status}</span>
+            <span class="px-5 py-2 rounded-3xl text-sm ${a.status === 'done' ? 'bg-emerald-500' : 'bg-gray-600'}">${escapeHtml(a.status || "pending")}</span>
           </div>
         </div>
-      `).join('');
+      `).join('') || `<p class="text-sm text-gray-400 italic">Ülesandeid ei leitud.</p>`;
     }
 
     async function openAssignment(id) {
-      currentAssignment = await api("GET", `/assignments/${id}`);
+      currentAssignment = toItem(await api("GET", `/assignments/${id}`));
       let comments = await api("GET", `/assignments/${id}/comments?schema=${SCHEMAS.comments}`);
 
-      if (!Array.isArray(comments)) comments = comments?.items || comments?.data || [];
+      comments = toArray(comments);
 
       const commentHTML = comments.map(c => `
         <div class="bg-gray-800 p-5 rounded-3xl mb-3">
@@ -309,10 +474,16 @@
       if (!currentAssignment) return;
       if (!confirm(`Kustuta kommentaar #${commentId}?`)) return;
 
-      await api("DELETE", `/assignments/${currentAssignment.id}/comments/${commentId}`);
-      hideModal();
-      setTimeout(() => openAssignment(currentAssignment.id), 250);
-      loadComments();
+      const result = await api("DELETE", `/assignments/${currentAssignment.id}/comments/${commentId}`);
+      if (isErrorPayload(result)) {
+        const detail = result.message || result.error || "Kommentaari kustutamine ebaonnestus.";
+        showApiInlineMessage(detail, "error");
+        return;
+      }
+
+      await openAssignment(currentAssignment.id);
+      await refreshActiveView();
+      showApiInlineMessage("Kommentaar kustutatud.", "success");
     }
 
     async function postComment() {
@@ -325,27 +496,36 @@
         user_id: currentUser.id
       });
 
-      hideModal();
-      setTimeout(() => openAssignment(currentAssignment.id), 500);   // veidi viidet, et backend jõuaks
+      document.getElementById("new-comment").value = "";
+      await openAssignment(currentAssignment.id);
+      await refreshActiveView();
     }
 
     async function markAsDone() {
       if (!currentAssignment) return;
       await api("PATCH", `/assignments/${currentAssignment.id}`, { status: "done" });
-      hideModal();
-      loadAssignments();
-      loadDashboard();
+      await openAssignment(currentAssignment.id);
+      await refreshActiveView();
     }
 
     async function deleteCurrentAssignment() {
       if (!currentAssignment) return;
       if (!confirm(`Kustuta ülesanne #${currentAssignment.id}?`)) return;
 
-      await api("DELETE", `/assignments/${currentAssignment.id}`);
+      const result = await api("DELETE", `/assignments/${currentAssignment.id}`);
+      if (isErrorPayload(result)) {
+        const detail = result.message || result.error || "Ulesande kustutamine ebaonnestus.";
+        showApiInlineMessage(detail, "error");
+        return;
+      }
+
       hideModal();
-      loadAssignments();
-      loadDashboard();
-      loadComments();
+      currentAssignment = null;
+      await refreshActiveView();
+      await loadDashboard();
+      await loadAssignments();
+      await loadComments();
+      showApiInlineMessage("Ulesanne kustutatud.", "success");
     }
 
     function showCreateModal() {
@@ -364,28 +544,37 @@
       const status = document.getElementById("form-status").value;
       const description = document.getElementById("form-description").value;
 
-      await api("POST", "/assignments", { title, deadline, status, description });
+      const result = await api("POST", "/assignments", { title, deadline, status, description });
+      if (result && typeof result === "object" && result.error) {
+        const detail = result.message || result.error || "Ulesande loomine ebaonnestus.";
+        showApiInlineMessage(detail, "error");
+        return;
+      }
+
       hideCreateModal();
-      loadAssignments();
-      loadDashboard();
+      await refreshActiveView();
+      await loadDashboard();
+      await loadAssignments();
     }
 
     async function loadTags() {
-      const tags = await api("GET", `/tags?schema=id,name,created_at`);
+      const tagData = await api("GET", `/tags?schema=id,name,created_at`);
+      const tags = toArray(tagData);
       const container = document.getElementById("view-tags");
       container.innerHTML = `<h3 class="text-xl font-semibold mb-6">Tag'id / Platvormid</h3><div id="tags-list" class="flex flex-wrap gap-3"></div>`;
       document.getElementById("tags-list").innerHTML = tags.map(t => `
-        <span class="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-3xl text-sm cursor-pointer flex items-center gap-2"><i class="fa-solid fa-tag"></i> ${t.name}</span>
-      `).join('');
+        <span class="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-3xl text-sm cursor-pointer flex items-center gap-2"><i class="fa-solid fa-tag"></i> ${escapeHtml(t.name || "Tag")}</span>
+      `).join('') || `<p class="text-sm text-gray-400 italic">Tag'e ei leitud.</p>`;
     }
 
     async function loadComments() {
-      const comments = await api("GET", `/comments?schema=${SCHEMAS.comments}`);
+      const commentData = await api("GET", `/comments?schema=${SCHEMAS.comments}`);
+      const comments = toArray(commentData);
       const container = document.getElementById("view-comments");
       container.innerHTML = `<h3 class="text-xl font-semibold mb-6">Kõik kommentaarid</h3><div id="all-comments" class="space-y-6"></div>`;
       document.getElementById("all-comments").innerHTML = comments.map(c => `
         <div class="bg-gray-900 rounded-3xl p-6"><p class="font-medium">${escapeHtml(c.content || c.text || '')}</p><p class="text-xs text-gray-400 mt-3">Ülesanne #${escapeHtml(c.assignment_id)}</p></div>
-      `).join('');
+      `).join('') || `<p class="text-sm text-gray-400 italic">Kommentaare ei leitud.</p>`;
     }
 
     function toggleApiBodyInput() {
@@ -408,6 +597,7 @@
         <div class="bg-gray-900 rounded-3xl p-6">
           <h3 class="text-xl font-semibold mb-4">API päringutööriist</h3>
           <p class="text-sm text-gray-400 mb-6">Saad teha käsitsi GET, POST, PATCH ja DELETE päringuid ükskõik millisele ressursile.</p>
+          <div id="api-inline-message" class="hidden"></div>
 
           <div class="grid md:grid-cols-5 gap-3 mb-3">
             <select id="api-method" onchange="toggleApiBodyInput()" class="bg-gray-800 rounded-2xl px-4 py-3">
@@ -465,6 +655,23 @@
       statusEl.textContent = `${method} ${path} -> ${result.status}`;
       statusEl.className = `text-sm mb-3 ${result.ok ? "text-emerald-300" : "text-red-400"}`;
       responseEl.textContent = prettyJson(result.data);
+
+      if (["POST", "PATCH", "DELETE"].includes(method)) {
+        if (result.ok) {
+          showApiInlineMessage(mutationSuccessMessage(method, path, result.status), "success");
+        } else {
+          const detail = typeof result.data === "object"
+            ? (result.data?.message || result.data?.error || "Paring ebaonnestus")
+            : "Paring ebaonnestus";
+          showApiInlineMessage(mutationErrorMessage(method, path, result.status, detail), "error");
+        }
+      } else {
+        showApiInlineMessage(`${method} valmis (${result.status}).`, result.ok ? "info" : "error");
+      }
+
+      if (result.ok && ["POST", "PATCH", "DELETE"].includes(method)) {
+        await refreshActiveView();
+      }
     }
 
     function hideModal() { document.getElementById("modal").classList.add("hidden"); }

@@ -926,7 +926,7 @@ def patch_resource(subpath):
     if not parts or not parts[-1].isdigit():
         return jsonify({
             "error": "FORBIDDEN",
-            "message": "PUT is allowed only for resource paths ending with a numeric ID.",
+            "message": "PATCH is allowed only for resource paths ending with a numeric ID.",
             "status": 403,
             "path": full_path,
         }), 403
@@ -943,7 +943,7 @@ def patch_resource(subpath):
     if body is None or not isinstance(body, dict):
         return jsonify({
             "error": "BAD_REQUEST",
-            "message": "PUT request requires a valid JSON object body.",
+            "message": "PATCH request requires a valid JSON object body.",
             "status": 400,
             "path": full_path,
         }), 400
@@ -1208,7 +1208,7 @@ def unsupported_method(subpath):
         "message": f"HTTP method not supported for this endpoint.",
         "status": 405,
         "path": full_path,
-        "allowed_methods": ["GET", "POST", "PUT", "DELETE"],
+        "allowed_methods": ["GET", "POST", "PATCH", "DELETE"],
     }), 405
 
 if __name__ == '__main__':
