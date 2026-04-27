@@ -102,6 +102,7 @@
     let currentUser = { id: 1, name: "Anna Tamm", role: "student" };
     let currentAssignment = null;
     const API = "http://localhost:5000";
+    let inlineMessageTimer = null;
 
     function escapeHtml(value) {
       if (value === null || value === undefined) return "";
@@ -203,6 +204,11 @@
       const container = activeContainer;
       if (!container) return;
 
+      if (inlineMessageTimer) {
+        clearTimeout(inlineMessageTimer);
+        inlineMessageTimer = null;
+      }
+
       const styles = {
         success: "border-emerald-400/60 bg-emerald-500/15 text-emerald-100",
         error: "border-rose-400/60 bg-rose-500/15 text-rose-100",
@@ -216,6 +222,12 @@
       if (container.id === "global-inline-message") {
         container.className = `fixed top-5 left-1/2 -translate-x-1/2 z-[120] w-[min(92vw,720px)] rounded-2xl border px-4 py-3 text-sm shadow-2xl backdrop-blur-sm ${styles[type] || styles.info}`;
       }
+
+      inlineMessageTimer = setTimeout(() => {
+        container.classList.add("hidden");
+        container.innerHTML = "";
+        inlineMessageTimer = null;
+      }, 3000);
     }
 
     function mutationResourceLabel(path) {
