@@ -17,7 +17,8 @@ Rakendus toetab:
 ## Käivitamine Dockeri konteineris
 - Veendu, et sul on arvutisse installitud Docker ning et see töötab
 - Navigeeri ``` /code ``` kausta
-- Loo ``` .env ``` fail näidise põhjal (päris OpenAI API võtmega)
+- Loo ``` .env ``` fail näidise (.env.example) põhjal (päris OpenAI API võtmega)
+  - **NB!** Interaktiivse testrakenduse kasutamiseks kasuta näidises olevat API spetsifikatsiooni
 - Veendu, et oled terminaliga ``` code ``` kaustas ning sisesta järgnevad käsud:
   - ```bash
     docker build -t ai-simulaator .
