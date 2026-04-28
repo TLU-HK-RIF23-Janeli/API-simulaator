@@ -1,12 +1,12 @@
 # TI-põhine REST API simulaator
-<img width="1296" height="765" alt="image" src="https://github.com/user-attachments/assets/c414c0e2-93ab-4b77-b48f-81628121161c" />
+<img width="1236" height="570" alt="image" src="https://github.com/user-attachments/assets/7e3ccd41-4407-43ff-9171-853ce7462abc" />
+
 
 See projekt on dünaamiline REST API simulaator, mis kasutab generatiivset tehisintellekti andmete genereerimiseks siis, kui vastavat ressurssi pole veel andmebaasis olemas.
 
 Rakendus toetab:
 - automaatset andmete genereerimist kasutaja soovitud lõpp-punktidele
 - CRUD operatsioone (ressursside lugemine, loomine, muutmine ning kustutamine)
-- dünaamilist lõpp-punktide haldust SQLite dünaamiliste tabelitega
 - andmeskeemi valideerimist (uued kirjed peavad sobituma olemasoleva struktuuriga)
 - kustutatud ressursside musta nimekirja (blacklisti) (et neid ei genereeritaks uuesti)
 - päringuparameetrite kasutamist
@@ -95,11 +95,7 @@ API_SPECIFICATION="You are an API for Student Homework Management. Key domains: 
 Tagastab API tutvustuse
 
 ## GET /documentation
-<img width="1431" height="844" alt="image" src="https://github.com/user-attachments/assets/cf6ebda4-eefa-404b-9ddd-e81258d30d0f" />
-<img width="1346" height="838" alt="image" src="https://github.com/user-attachments/assets/e3f3e29c-7d0e-498c-8b0a-9b2308bbbe7b" />
-
-<img width="1327" height="673" alt="image" src="https://github.com/user-attachments/assets/f765ed54-3f0c-4114-b6c1-55e1991600ef" />
-<img width="1344" height="441" alt="image" src="https://github.com/user-attachments/assets/b6fd848f-ec5d-4ed3-93cf-ebe18662df88" />
+<img width="1319" height="626" alt="image" src="https://github.com/user-attachments/assets/8990b24b-d68f-4b3a-a898-01cbe3bcd876" />
 
 Tagastab API hetkeseisu (ressursid, spetsifikatsioon, ka kõik staatilised lõpp-punktid jms)
 
@@ -107,10 +103,14 @@ Tagastab API hetkeseisu (ressursid, spetsifikatsioon, ka kõik staatilised lõpp
 Tagastab ning võimaldab muuta API kirjeldust, mida rakendus simuleerib.
 
 ## GET /tester
-<img width="1860" height="846" alt="image" src="https://github.com/user-attachments/assets/702b0de8-0fc9-485a-b961-5abec2051120" />
-<img width="1511" height="733" alt="image" src="https://github.com/user-attachments/assets/d3ee56a5-98fa-4ea5-b4bf-203e57c55c13" />
+<img width="1868" height="789" alt="image" src="https://github.com/user-attachments/assets/01719871-2750-4aeb-8c83-4b368df7fa79" />
 
-Seal asub koolitööde haldamise näidisrakendus ning API tööriist, millega API-t testida. NB! Koolitööde rakenduse töötamiseks taasta vaikeseaded ning tühjenda andmebaas.
+Seal asub koolitööde haldamise näidisrakendus, millega API-t testida. NB! Koolitööde rakenduse töötamiseks taasta vaikeseaded ning tühjenda andmebaas.
+
+## GET /api-tool
+<img width="1345" height="820" alt="image" src="https://github.com/user-attachments/assets/e5414757-8184-4400-abb8-5704d8ea9483" />
+
+Tööriist API-le päringute tegemise kiireks testiimiseks.
 
 ## GET /path
 Otsib andmed järgmises järjekorras:
