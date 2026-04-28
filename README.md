@@ -1,4 +1,5 @@
 # TI-põhine REST API simulaator
+<img width="1296" height="765" alt="image" src="https://github.com/user-attachments/assets/c414c0e2-93ab-4b77-b48f-81628121161c" />
 
 See projekt on dünaamiline REST API simulaator, mis kasutab generatiivset tehisintellekti andmete genereerimiseks siis, kui vastavat ressurssi pole veel andmebaasis olemas.
 
@@ -84,12 +85,21 @@ API_SPECIFICATION="You are an API for Student Homework Management. Key domains: 
 Tagastab API tutvustuse
 
 ## GET /documentation
+<img width="1431" height="844" alt="image" src="https://github.com/user-attachments/assets/cf6ebda4-eefa-404b-9ddd-e81258d30d0f" />
+<img width="1346" height="838" alt="image" src="https://github.com/user-attachments/assets/e3f3e29c-7d0e-498c-8b0a-9b2308bbbe7b" />
+
+<img width="1327" height="673" alt="image" src="https://github.com/user-attachments/assets/f765ed54-3f0c-4114-b6c1-55e1991600ef" />
+<img width="1344" height="441" alt="image" src="https://github.com/user-attachments/assets/b6fd848f-ec5d-4ed3-93cf-ebe18662df88" />
+
 Tagastab API hetkeseisu (ressursid, spetsifikatsioon, ka kõik staatilised lõpp-punktid jms)
 
 ## GET/POST /specification
 Tagastab ning võimaldab muuta API kirjeldust, mida rakendus simuleerib.
 
 ## GET /tester
+<img width="1860" height="846" alt="image" src="https://github.com/user-attachments/assets/702b0de8-0fc9-485a-b961-5abec2051120" />
+<img width="1511" height="733" alt="image" src="https://github.com/user-attachments/assets/d3ee56a5-98fa-4ea5-b4bf-203e57c55c13" />
+
 Seal asub koolitööde haldamise näidisrakendus ning API tööriist, millega API-t testida. NB! Koolitööde rakenduse töötamiseks taasta vaikeseaded ning tühjenda andmebaas.
 
 ## GET /path
