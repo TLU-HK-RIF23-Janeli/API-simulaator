@@ -799,6 +799,10 @@ def get_specification():
 def tester():
     return render_template('tester2.html'), 200
 
+@app.route('/api-tool', methods=['GET'])
+def api_tool():
+    return render_template('api_tool.html'), 200
+
 @app.route('/delete-all', methods=['DELETE'])
 def delete_all():
     reset_db.clear_database()

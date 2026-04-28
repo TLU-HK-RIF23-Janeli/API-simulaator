@@ -9,11 +9,16 @@
         </head>
         <body class="bg-zinc-950 text-zinc-100">
             <div class="max-w-5xl mx-auto py-12 px-8">
-                <div class="flex items-center gap-4 mb-8">
+                <div class="flex items-center justify-between gap-4 mb-8">
                     <i class="fa-solid fa-flask text-5xl text-emerald-400"></i>
                     <div>
                         <h1 class="text-4xl font-bold">TI API simulaator</h1>
                         <p class="text-zinc-400">Universaalne tehisintellektipõhine REST API mock server</p>
+                    </div>
+                    <div class="hidden sm:flex items-center gap-3">
+                        <a href="/tester" class="rounded-2xl border border-gray-700 px-4 py-2 text-sm text-gray-200 hover:bg-gray-800">Demorakendus</a>
+                        <a href="/api-tool" class="rounded-2xl border border-gray-700 px-4 py-2 text-sm text-gray-200 hover:bg-gray-800">API tööriist</a>
+                        <a href="/documentation" class="rounded-2xl bg-emerald-700 px-4 py-2 text-sm text-white hover:bg-emerald-600">API dokumentatsioon</a>
                     </div>
                 </div>
 
@@ -36,21 +41,27 @@
                         <h3 class="font-semibold mb-2">1. API kirjeldus</h3>
                         <p class="text-sm text-zinc-400 mb-4">Esmalt tuleb määrata API kirjeldus, mis defineerib, mis API-t rakendus simuleerib.</p>
                         <h3 class="font-semibold mb-2">Kuidas?</h3>
-                        <p class="text-sm text-zinc-400">Saada POST päring lõpp-punktile <code>/specification</code>:</p>
+                        <p class="text-sm text-zinc-400">Saada POST päring lõpp-punktile <code>/specification</code> või tee seda dokumentatsioonis</p>
                         <code class="block bg-zinc-800 text-sm p-3 rounded-lg mb-2">{"specification":"You are an expert Mock API for Student Homework Management. Key domains: Users (Admin/Student), Assignments (Deadlines/Content), Tags (Academic Platforms), Comments, and Personal Task Statuses. Generate consistent, linked data suitable for testing a student-facing web application."}</code>
                     </div>
                     <div class="bg-zinc-900 rounded-3xl p-6">
-                        <h3 class="font-semibold mb-2">2. TI andmete generatsioon</h3>
-                        <p class="text-sm text-zinc-400 mb-4">Esimesel päringul loob tehisintellekti mudel (OpenAI GPT 4o-mini) 
+                        <h3 class="font-semibold mb-2">2. Andmete pärimine</h3>
+                        <p class="text-sm text-zinc-400 mb-4">Päri soovitud andmeid kas läbi API tööriista, brauseri või oma frontend rakenduse. 
+                            Esimesel päringul loob tehisintellekti mudel (OpenAI GPT 4o-mini) 
                             realistlikud andmed vastavalt API kirjeldusele, päringule ning soovitud andmestruktuurile, 
                             juhul kui see on päringuparameetrites kirjas.</p>
                         <h3 class="font-semibold mb-2">Märkus</h3>
                         <p class="text-sm text-zinc-400">Ressursside soovitud väljad on mõistlik kohe koodis defineerida, et vältida andmete struktuuri muutusi.</p>
                     </div>
                     <div class="bg-zinc-900 rounded-3xl p-6">
-                        <h3 class="font-semibold mb-2">3. Stabiilne andmebaas</h3>
-                        <p class="text-sm text-zinc-400">Andmed salvestatakse SQLite andmebaasi. 
-                            Järgmised päringud samale lõpp-punktile tagastavad eelnevalt genereeritud andmeid.</p>
+                        <h3 class="font-semibold mb-2">3. Andmete salvestamine</h3>
+                        <p class="text-sm text-zinc-400 mb-4">Andmed salvestatakse SQLite andmebaasi. 
+                            Järgmised päringud samale lõpp-punktile tagastavad eelnevalt genereeritud andmeid,
+                            tagamaks andmestruktuuri stabiilsust ning andmete järjepidevust.</p>
+                        <h3 class="font-semibold mb-2">Märkus</h3>
+                        <p class="text-sm text-zinc-400">Oma simuleeritud API hetkeseisu näed dokumentatsioonist.
+                            Seal on olemas API spetsifikatsioon, loodud dünaamilised lõpp-punktid ning ka musta nimekirja kantud ressursid.
+                        </p>
                     </div>
                     <div class="bg-zinc-900 rounded-3xl p-6">
                         <h3 class="font-semibold mb-2">4. Andmeskeemi kontroll</h3>
@@ -87,12 +98,17 @@
                     <div class="flex flex-wrap gap-4">
                         <div class="flex flex-wrap gap-4">
                             <a href="/tester" class="bg-violet-600 hover:bg-violet-700 px-6 py-3 rounded-2xl inline-flex items-center gap-2">
-                            <i class="fa-solid fa-flask"></i> Ava interaktiivne tester
+                            <i class="fa-solid fa-flask"></i> Interaktiivne demorakendus
                             </a>
                         </div>
                         <div class="flex flex-wrap gap-4">
                             <a href="/documentation" class="bg-green-700 hover:bg-green-600 px-6 py-3 rounded-2xl inline-flex items-center gap-2">
-                            <i class="fa-solid fa-flask"></i> API hetkeseisu dokumentatsioon
+                            <i class="fa-solid fa-flask"></i> API dokumentatsioon
+                            </a>
+                        </div>
+                        <div class="flex flex-wrap gap-4">
+                            <a href="/api-tool" class="bg-orange-500 hover:bg-orange-700 px-6 py-3 rounded-2xl inline-flex items-center gap-2">
+                            <i class="fa-solid fa-flask"></i> API tööriist testimiseks
                             </a>
                         </div>
                     </div>
