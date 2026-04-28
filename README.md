@@ -111,17 +111,37 @@ Andmeskeemi päringuparameeter (esimene genereerimine):
 - `GET /movies?schema=title&schema=genre`
 > Kui tabeli schema on juba olemas ja antud schema erineb olemasolevast, tagastatakse 409 SCHEMA_CONFLICT
 
-### GET /collection?limit=N
-Toetatud ainult kollektsioonidel (tee ei tohi lõppeda numbriga).
+### Limit päringuparameeter
+- Nt: `/movies?limit=7`
+- Toetatud ainult kollektsioonidel (tee ei tohi lõppeda numbriga).
 
-**Reeglid**:
-- N peab olema positiivne täisarv
-- kui olemasolevaid kirjeid on vähem kui `limit` ette näeb, genereeritakse (ainult) puuduolev arv ressursse juurde
-- kui olemasolevaid ressursse on rohkem, tagastatakse soovitud pikkusega nimekiri
-- korduv `limit` parameetri kasutamine annab vastuseks error 400
+>**Reeglid**:
+>- N peab olema positiivne täisarv
+>- kui olemasolevaid kirjeid on vähem kui `limit` ette näeb, genereeritakse (ainult) puuduolev arv ressursse juurde
+>- kui olemasolevaid ressursse on rohkem, tagastatakse soovitud pikkusega nimekiri
+>- korduv `limit` parameetri kasutamine annab vastuseks error 400
+
+### Muud päringuparameetrid
+- Nt: `/movies?genre=horror,fiction&language=english`
+- Esimese parameetri ette käib ? ja edaspidiste ette &
+>Kui sisestada komaga mitu sama parameetri alla käivad otsingusõna, otsitakse andmebaasist täpselt seda kombinatsiooni
+> - nt parameetri `?ingredients=chicken,egg` puhul otsitakse retseptid, kus on `chicken` JA `egg` (sama retsepti) sees
+> - parameetri `?ingredients=cihken&ingredients=egg` puhul otsitakse retsepte, kus on `chicken`, ja retsepte, kus on `egg`, eraldi
 
 ## POST /collection (/books)
 Lisab uue kirje.
+
+**Näide POST /assignments:**
+```
+  {
+  "created_at": "2023-10-05T16:00:00Z",
+  "id": "5",
+  "title": "Computer Science Programming Assignment",
+  "deadline": "2023-10-12T23:59:59Z",
+  "status": "pending",
+  "description": "Develop a simple calculator application in Python."
+  }
+```
 
 >Reeglid:
 >- POST item lõpp-punktile (nt /books/1) on keelatud (403)
@@ -132,6 +152,16 @@ Lisab uue kirje.
 
 ## PATCH /item (/books/1)
 Uuendab olemasolevat üksikobjekti.
+
+**Näide PATCH /assignments/5:**
+```
+  {
+    "created_at": "2026-10-05T16:00:00Z",
+    "id": "5",
+    "status": "ready",
+    "description": "Develop a simple calculator application in Python."
+  }
+```
 
 >Reeglid:
 >- lubatud ainult teedele, mis lõpevad numbriga
