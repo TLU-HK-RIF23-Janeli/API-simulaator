@@ -36,7 +36,7 @@
         <a onclick="showView('comments')" class="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-gray-800 cursor-pointer">Kommentaarid</a>
       </nav>
               <a onclick="showView('api')" class="flex items-center gap-3 px-4 py-3 mb-2 rounded-2xl bg-purple-700 hover:bg-purple-500 cursor-pointer">API tööriist</a>
-      <a href="http://localhost:5000/" class="flex items-center gap-3 px-4 py-3 rounded-2xl bg-green-700 hover:bg-green-500 cursor-pointer">API dokumentatsioon</a>
+      <a href="/" class="flex items-center gap-3 px-4 py-3 rounded-2xl bg-green-700 hover:bg-green-500 cursor-pointer">API dokumentatsioon</a>
       <button onclick="resetDatabase()" class="mt-auto flex items-center justify-center gap-2 text-red-400 hover:text-red-300 py-3">
         <i class="fa-solid fa-trash"></i> Kustuta kogu andmebaas
       </button>
@@ -101,7 +101,7 @@
 
     let currentUser = { id: 1, name: "Anna Tamm", role: "student" };
     let currentAssignment = null;
-    const API = "http://localhost:5000";
+    const API = window.location.origin;
     let inlineMessageTimer = null;
 
     function escapeHtml(value) {

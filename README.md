@@ -24,9 +24,17 @@ Rakendus toetab:
     docker build -t ai-simulaator .
     ```
   - ```bash
-    docker run -p 5000:5000 --env-file .env ai-simulaator
+    docker run -e PORT=5000 -p 5000:5000 --env-file .env ai-simulaator
     ```
 - Rakendus töötab aadressil [localhost:5000](http://localhost:5000)
+
+Kui tahad kasutada teist porti, sea nii konteineri sisemine port kui ka port-mapping samaks ning anna see läbi `PORT` keskkonnamuutuja.
+
+Näide:
+
+```bash
+docker run -e PORT=5001 -p 5001:5001 --env-file .env ai-simulaator
+```
 
 ## Projektis kasutatud tehnoloogiad
 - Programmeerimiskeel Python
