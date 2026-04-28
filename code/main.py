@@ -1,6 +1,7 @@
 import time
 import re
-from flask import Flask, request, jsonify
+import json
+from flask import Flask, request, jsonify, render_template
 import database
 import ai_client
 import reset_db
@@ -8,14 +9,21 @@ import reset_db
 app = Flask(__name__)
 app.json.sort_keys = False  # Preserve the order of JSON keys as they are defined in the database
 
+# =============== CORS FIX (lisa siia) ===============
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PATCH, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    return response
+# ====================================================
+
 # On startup, initialize the database
 database.init_db()
 
 
 def _resource_exists(path):
-    data = database.get_resource_by_path(path)
-    if data is not None:
-        return True
     data = database.get_dynamic_resource_by_path(path)
     return data is not None
 
@@ -37,16 +45,14 @@ def _parent_item_path_for_nested_collection(path):
 def _find_parent_context(path):
     """Finds the nearest parent path that already exists in cache or dynamic tables."""
     parts = [p for p in path.split('/') if p]
-    if len(parts) < 2:
+    if len(parts) < 3:
         return None, None
 
     # Trim from right to left: /a/b/c -> /a/b -> /a
     for i in range(len(parts) - 1, 0, -1):
         candidate = "/" + "/".join(parts[:i])
 
-        data = database.get_resource_by_path(candidate)
-        if data is None:
-            data = database.get_dynamic_resource_by_path(candidate)
+        data = database.get_dynamic_resource_by_path(candidate)
 
         if data is not None:
             return candidate, data
@@ -202,19 +208,37 @@ def _schema_validation_error_response(details, duration_seconds):
         "details": details,
     })
     response.headers['X-Response-Time-Seconds'] = f"{duration_seconds:.2f}"
+    print(response.get_json())
     return response, 422
 
 
+def _status_from_error_payload(payload, default_status=400):
+    if not isinstance(payload, dict):
+        return default_status
+
+    raw_status = payload.get("status")
+    try:
+        status = int(raw_status)
+    except (TypeError, ValueError):
+        return default_status
+
+    if status < 100 or status > 599:
+        return default_status
+
+    return status
+
+
 def _conflict_response(full_path, message, details=None):
-    payload = {
+    response = jsonify({
         "error": "CONFLICT",
         "message": message,
         "status": 409,
         "path": full_path,
-    }
+    })
+    print(response.get_json())
     if details is not None:
-        payload["details"] = details
-    return jsonify(payload), 409
+        response.get_json()["details"] = details
+    return response, 409
 
 
 def _is_collection_path(path):
@@ -284,7 +308,236 @@ def _parse_limit_or_error(limit_raw, full_path):
     return parsed, None
 
 
-async def _handle_collection_limit_request(full_path, requested_limit, start_time):
+def _parse_user_schema_or_error(full_path):
+    """
+    Parses optional user-provided schema from GET query params.
+    Supported forms:
+    - ?schema=title,author
+    - ?schema=title&schema=author
+    """
+    try:
+        schema_values = request.args.getlist("schema")
+    except Exception as exc:
+        return None, (
+            jsonify({
+                "error": "BAD_REQUEST",
+                "message": "Failed to parse query parameter 'schema'.",
+                "status": 400,
+                "path": full_path,
+                "details": str(exc),
+            }),
+            400,
+        )
+
+    if not schema_values:
+        return None, None
+
+    raw_columns = []
+    for value in schema_values:
+        if value is None:
+            continue
+        parts = [part.strip() for part in str(value).split(",")]
+        raw_columns.extend([part for part in parts if part])
+
+    normalized = database.normalize_schema_columns(raw_columns)
+    if not normalized:
+        return None, (
+            jsonify({
+                "error": "BAD_REQUEST",
+                "message": "Query parameter 'schema' must include at least one column name.",
+                "status": 400,
+                "path": full_path,
+            }),
+            400,
+        )
+
+    # Keep stable required fields in first-generation schema constraints.
+    if "id" not in normalized:
+        normalized.insert(0, "id")
+
+    for parent_resource, _ in _parent_pairs_for_path(full_path):
+        fk_field = _preferred_fk_field(parent_resource)
+        if fk_field not in normalized:
+            normalized.append(fk_field)
+
+    return normalized, None
+
+
+def _parse_dynamic_query_params():
+    """
+    Parses dynamic query parameters while excluding reserved parameters.
+    Returned values are normalized for stable filtering/generation behavior.
+    """
+    reserved_params = {"limit", "schema"}
+    parsed = {}
+
+    for raw_key, values in request.args.lists():
+        try:
+            if raw_key in reserved_params:
+                continue
+
+            key = str(raw_key).strip()
+            if not key:
+                continue
+
+            normalized_values = []
+            for value in values:
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if text:
+                    normalized_values.append(text)
+
+            if not normalized_values:
+                continue
+
+            if len(normalized_values) == 1:
+                parsed[key] = normalized_values[0]
+            else:
+                parsed[key] = normalized_values
+        except Exception:
+            # Ignore malformed single query entries but keep valid ones.
+            continue
+
+    return parsed
+
+
+def _to_comparable_text(value):
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _query_key_candidates(query_key):
+    key = str(query_key).strip()
+    if not key:
+        return []
+
+    candidates = [key]
+    if key.endswith("s") and len(key) > 1:
+        candidates.append(key[:-1])
+    else:
+        candidates.append(f"{key}s")
+
+    # Preserve order while removing duplicates.
+    return list(dict.fromkeys(candidates))
+
+
+def _value_tokens(value):
+    if value is None:
+        return []
+
+    if isinstance(value, list):
+        tokens = []
+        for item in value:
+            tokens.extend(_value_tokens(item))
+        return tokens
+
+    text = _to_comparable_text(value).strip().lower()
+    if not text:
+        return []
+
+    # Support common CSV-like storage patterns (e.g. "breakfast, main course").
+    if "," in text:
+        return [part.strip() for part in text.split(",") if part.strip()]
+
+    return [text]
+
+
+def _apply_dynamic_query_filters(full_path, data, dynamic_query_params):
+    if not dynamic_query_params or not _is_collection_path(full_path):
+        return data
+
+    items = _extract_collection_items(full_path, data)
+    if not items:
+        return []
+
+    normalized_filters = {
+        key: value if isinstance(value, list) else [value]
+        for key, value in dynamic_query_params.items()
+    }
+
+    filtered = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        matches_all = True
+        for key, accepted_values in normalized_filters.items():
+            match_field = None
+            for candidate_key in _query_key_candidates(key):
+                if candidate_key in item:
+                    match_field = candidate_key
+                    break
+
+            if match_field is None:
+                matches_all = False
+                break
+
+            item_tokens = set(_value_tokens(item.get(match_field)))
+            accepted_texts = {
+                _to_comparable_text(value).strip().lower()
+                for value in accepted_values
+                if _to_comparable_text(value).strip()
+            }
+            if not item_tokens:
+                matches_all = False
+                break
+
+            if not item_tokens.intersection(accepted_texts):
+                matches_all = False
+                break
+
+        if matches_all:
+            filtered.append(item)
+
+    return filtered
+
+
+def _resolve_expected_schema_or_error(path, user_schema):
+    """
+    Resolves schema used for AI generation.
+    Precedence: existing DB schema -> user schema (first generation only) -> empty.
+    """
+    existing_schema = database.get_existing_schema_for_path(path)
+    if existing_schema:
+        if user_schema:
+            if set(existing_schema) != set(user_schema):
+                message = jsonify({
+                    "error": "SCHEMA_CONFLICT",
+                    "message": "Provided schema conflicts with the existing resource schema.",
+                    "status": 409,
+                    "path": path,
+                    "details": {
+                        "existing_schema": existing_schema,
+                        "provided_schema": user_schema,
+                    },
+                })
+                print(message.get_json())
+
+                return message, 409
+        return existing_schema, None
+
+    if user_schema:
+        persisted_schema = database.set_expected_schema_for_path(path, user_schema)
+        return persisted_schema, None
+
+    return [], None
+
+
+async def _handle_collection_limit_request(
+    full_path,
+    requested_limit,
+    start_time,
+    user_expected_schema=None,
+    dynamic_query_params=None,
+):
     # Ensure nested parent exists for endpoints like /books/2/comments?limit=7
     parent_item_path = _parent_item_path_for_nested_collection(full_path)
     if parent_item_path and not _resource_exists(parent_item_path):
@@ -318,22 +571,24 @@ async def _handle_collection_limit_request(full_path, requested_limit, start_tim
                 duration = time.time() - start_time
                 return _schema_validation_error_response(parent_data.get("details"), duration)
             duration = time.time() - start_time
+            status = _status_from_error_payload(parent_data, default_status=404)
             response = jsonify(parent_data)
             response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
-            return response, 404
+            return response, status
 
     # Build current collection state from table first, then cache fallback.
     current_data = database.get_dynamic_resource_by_path(full_path)
-    if current_data is None:
-        current_data = database.get_resource_by_path(full_path)
 
     current_data = _normalize_public_response(current_data) if current_data is not None else []
     current_items = _extract_collection_items(full_path, current_data)
+    current_items = _apply_dynamic_query_filters(full_path, current_items, dynamic_query_params)
 
     missing_count = requested_limit - len(current_items)
     if missing_count > 0:
         parent_path, parent_data = _find_parent_context(full_path)
-        expected_schema = database.get_existing_schema_for_path(full_path)
+        expected_schema, schema_error = _resolve_expected_schema_or_error(full_path, user_expected_schema)
+        if schema_error is not None:
+            return schema_error
 
         generation_context = {
             "existing_items": current_items,
@@ -349,6 +604,7 @@ async def _handle_collection_limit_request(full_path, requested_limit, start_tim
             parent_data=generation_context,
             expected_schema=expected_schema,
             requested_count=missing_count,
+            dynamic_query_params=dynamic_query_params,
         )
 
         if "error" in generated_data:
@@ -377,20 +633,170 @@ async def _handle_collection_limit_request(full_path, requested_limit, start_tim
         refreshed = database.get_dynamic_resource_by_path(full_path)
         refreshed = _normalize_public_response(refreshed) if refreshed is not None else []
         current_items = _extract_collection_items(full_path, refreshed)
+        current_items = _apply_dynamic_query_filters(full_path, current_items, dynamic_query_params)
 
     duration = (time.time() - start_time) * 1000
     response = jsonify(current_items[:requested_limit])
     response.headers['X-Response-Time-MS'] = f"{duration:.2f}"
     return response, 200
 
+
+def _documentation_static_spec():
+    return {
+        "title": "TI API Simulator",
+        "version": "current",
+        "base_url": "/",
+        "endpoints": [
+            {
+                "path": "/specification",
+                "method": "GET",
+                "description": "Returns current simulation specification.",
+            },
+            {
+                "path": "/specification",
+                "method": "POST",
+                "description": "Sets simulation specification string.",
+            },
+            {
+                "path": "/delete-all",
+                "method": "DELETE",
+                "description": "Clears all cached/generated data and reinitializes DB.",
+            },
+            {
+                "path": "/<path:subpath>",
+                "method": "GET",
+                "description": "Reads resource; generates with AI when not found.",
+            },
+            {
+                "path": "/<path:subpath>",
+                "method": "POST",
+                "description": "Creates item in collection endpoints.",
+            },
+            {
+                "path": "/<path:subpath>",
+                "method": "PATCH",
+                "description": "Updates existing item endpoint.",
+            },
+            {
+                "path": "/<path:subpath>",
+                "method": "DELETE",
+                "description": "Deletes item and blacklists path/aliases.",
+            },
+        ],
+        "query_parameters": [
+            {
+                "name": "limit",
+                "applies_to": "Collection GET endpoints",
+                "type": "integer > 0",
+                "description": "Returns exactly N items; generates missing items if needed.",
+            },
+            {
+                "name": "schema",
+                "applies_to": "First generation GET requests",
+                "type": "comma separated values or repeated parameter",
+                "description": "Constrains generated schema fields.",
+            },
+            {
+                "name": "<any_other_param>",
+                "applies_to": "GET collection endpoints",
+                "type": "string or repeated parameter",
+                "description": "Handled dynamically as filter/constraint and forwarded to AI generation context.",
+            },
+        ],
+        "status_codes": [
+            {"status": 200, "meaning": "Success"},
+            {"status": 201, "meaning": "Created"},
+            {"status": 400, "meaning": "Bad request (query/body validation)"},
+            {"status": 403, "meaning": "Forbidden endpoint usage"},
+            {"status": 404, "meaning": "Not found or blacklisted"},
+            {"status": 405, "meaning": "Method not allowed"},
+            {"status": 409, "meaning": "Schema/id/path conflict"},
+            {"status": 422, "meaning": "Schema mismatch"},
+        ],
+    }
+
+def _documentation_state_payload():
+    state = database.get_documentation_state_snapshot()
+    return {
+        "specification": _documentation_static_spec(),
+        "active_api_specification": ai_client.get_api_specification(),
+        "resources": state.get("resources", []),
+        "blacklisted_paths": state.get("blacklisted_paths", []),
+        "totals": {
+            "resource_count": state.get("resource_count", 0),
+            "blacklist_count": state.get("blacklist_count", 0),
+        },
+        "status": 200,
+    }
+
 @app.route('/')
 def home():
+    return render_template('home.html'), 200
+
+@app.route('/documentation')
+def documentation():
+    return render_template('documentation.html'), 200
+
+
+@app.route('/documentation/state', methods=['GET'])
+def documentation_state():
+    return jsonify(_documentation_state_payload()), 200
+
+@app.route('/specification', methods = ['POST'])
+def set_specification():
+    content_type = request.headers.get('Content-Type')
+    if content_type != 'application/json':
+        return jsonify({
+            "error": "BAD_REQUEST",
+            "message": "Content-Type must be application/json.",
+            "status": 400,
+        }), 400
+
+    body = request.get_json(silent=True)
+    if body is None:
+        return jsonify({
+            "error": "BAD_REQUEST",
+            "message": "Request body must be valid JSON.",
+            "status": 400,
+        }), 400
+
+    specification = body.get("specification")
+    if not isinstance(specification, str):
+        return jsonify({
+            "error": "BAD_REQUEST",
+            "message": "JSON body must include a 'specification' field of type string.",
+            "status": 400,
+        }), 400
+
+    normalized_specification = specification.strip()
+    if normalized_specification:
+        saved_specification = ai_client.save_api_specification(normalized_specification)
+        print(f"API specification updated to: {saved_specification}")
+        return jsonify({
+            "message": "API specification updated successfully.",
+            "api_specification": ai_client.get_api_specification(),
+            "status": 200,
+        }), 200
+
+    ai_client.reset_api_specification()
+    print("API specification reset to default from environment.")
     return jsonify({
-        "status": "online",
-        "message": "Tere tulemast API simulatorisse!",
-        "instructions": "Siia tuleb hiljem lisainfo",
-        "links": "github repo, dokumentatsioon, jne"
+        "message": "API specification reset to environment default.",
+        "api_specification": ai_client.get_api_specification(),
+        "status": 200,
     }), 200
+
+@app.route('/specification', methods = ['GET'])
+def get_specification():
+    API_SPECIFICATION = ai_client.get_api_specification()
+    return jsonify({
+        "api_specification": API_SPECIFICATION,
+        "status": 200,
+    }), 200
+
+@app.route('/tester', methods = ['GET'])
+def tester():
+    return render_template('tester2.html'), 200
 
 @app.route('/delete-all', methods=['DELETE'])
 def delete_all():
@@ -437,9 +843,7 @@ def delete_resource(subpath):
         }), 200
 
     # Do not blacklist item paths that never existed.
-    existing_data = database.get_resource_by_path(full_path)
-    if existing_data is None:
-        existing_data = database.get_dynamic_resource_by_path(full_path)
+    existing_data = database.get_dynamic_resource_by_path(full_path)
     if existing_data is None:
         return jsonify({
             "error": "NOT_FOUND",
@@ -512,6 +916,7 @@ async def post_resource(subpath):
     response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
     return response, 201
 
+
 @app.route('/<path:subpath>', methods=['PATCH'])
 def patch_resource(subpath):
     start_time = time.time()
@@ -521,7 +926,7 @@ def patch_resource(subpath):
     if not parts or not parts[-1].isdigit():
         return jsonify({
             "error": "FORBIDDEN",
-            "message": "PUT is allowed only for resource paths ending with a numeric ID.",
+            "message": "PATCH is allowed only for resource paths ending with a numeric ID.",
             "status": 403,
             "path": full_path,
         }), 403
@@ -538,14 +943,12 @@ def patch_resource(subpath):
     if body is None or not isinstance(body, dict):
         return jsonify({
             "error": "BAD_REQUEST",
-            "message": "PUT request requires a valid JSON object body.",
+            "message": "PATCH request requires a valid JSON object body.",
             "status": 400,
             "path": full_path,
         }), 400
 
     existing_data = database.get_dynamic_resource_by_path(full_path)
-    if existing_data is None:
-        existing_data = database.get_resource_by_path(full_path)
     if existing_data is None:
         return jsonify({
             "error": "NOT_FOUND",
@@ -636,39 +1039,66 @@ async def handle_api_request(subpath):
         response.headers['X-Response-Time-MS'] = f"{duration:.2f}"
         return response, 404
 
-    limit_values = request.args.getlist("limit")
-    if len(limit_values) > 1:
-        return jsonify({
-            "error": "BAD_REQUEST",
-            "message": "Query parameter 'limit' must be provided at most once.",
-            "status": 400,
-            "path": full_path,
-        }), 400
+    try:
+        limit_values = request.args.getlist("limit")
+        if len(limit_values) > 1:
+            return jsonify({
+                "error": "BAD_REQUEST",
+                "message": "Query parameter 'limit' must be provided at most once.",
+                "status": 400,
+                "path": full_path,
+            }), 400
 
-    limit_raw = limit_values[0] if limit_values else None
-    requested_limit, limit_error = _parse_limit_or_error(limit_raw, full_path)
-    if limit_error is not None:
-        return limit_error
+        limit_raw = limit_values[0] if limit_values else None
+        requested_limit, limit_error = _parse_limit_or_error(limit_raw, full_path)
+        if limit_error is not None:
+            return limit_error
+
+        user_expected_schema, schema_parse_error = _parse_user_schema_or_error(full_path)
+        if schema_parse_error is not None:
+            return schema_parse_error
+
+        dynamic_query_params = _parse_dynamic_query_params()
+    except Exception as exc:
+        return jsonify({
+            "error": "INTERNAL_SERVER_ERROR",
+            "message": "Failed to parse query parameters.",
+            "status": 500,
+            "path": full_path,
+            "details": str(exc),
+        }), 500
+
     if requested_limit is not None:
-        return await _handle_collection_limit_request(full_path, requested_limit, start_time)
+        return await _handle_collection_limit_request(
+            full_path,
+            requested_limit,
+            start_time,
+            user_expected_schema=user_expected_schema,
+            dynamic_query_params=dynamic_query_params,
+        )
+    
+    if user_expected_schema is not None:
+        existing_schema = database.get_existing_schema_for_path(full_path)
+        if existing_schema and set(existing_schema) != set(user_expected_schema):
+            duration = (time.time() - start_time) * 1000
+            response = jsonify({
+                "error": "SCHEMA_CONFLICT",
+                "message": "Provided schema conflicts with the existing resource schema.",
+                "status": 409,
+                "path": full_path,
+                "details": {
+                    "existing_schema": existing_schema,
+                    "provided_schema": user_expected_schema,
+                },
+            })
+            print(response.get_json())
+            return response, 409
 
     # 1. Search from the database
-    existing_data = database.get_resource_by_path(full_path)
-    
-    if existing_data is not None:
-        existing_data = _normalize_public_response(existing_data)
-        duration = (time.time() - start_time) * 1000  # Calculate duration in milliseconds
-        print(f"CACHE HIT: {full_path} kätte saadud {duration:.2f} ms-ga.")
-        
-        # Add the response time to headers for observability
-        response = jsonify(existing_data)
-        response.headers['X-Response-Time-MS'] = f"{duration:.2f}"
-        return response, 200
-
-    # 1.5. If exact cache miss, check dynamic tables (e.g. /books, /books/123)
     dynamic_data = database.get_dynamic_resource_by_path(full_path)
     if dynamic_data is not None:
         dynamic_data = _normalize_public_response(dynamic_data)
+        dynamic_data = _apply_dynamic_query_filters(full_path, dynamic_data, dynamic_query_params)
         duration = (time.time() - start_time) * 1000
         print(f"TABLE HIT: {full_path} kätte saadud {duration:.2f} ms-ga.")
 
@@ -723,35 +1153,49 @@ async def handle_api_request(subpath):
             return response, 404
 
     # 2. If no data found from  the database, generate with AI
-    print(f"CACHE MISS: {full_path} läheb AI-le...")
+    print(f"DATABASE MISS: {full_path} läheb AI-le...")
     parent_path, parent_data = _find_parent_context(full_path)
     if parent_data is not None:
         print(f"PARENT CONTEXT FOUND: {parent_path}")
 
-    expected_schema = database.get_existing_schema_for_path(full_path)
+    expected_schema, schema_error = _resolve_expected_schema_or_error(full_path, user_expected_schema)
+    if schema_error is not None:
+        return schema_error
+    print(f"EXISTING SCHEMA for {full_path}: {expected_schema}")
 
     new_data = await ai_client.get_ai_content(
         full_path,
         parent_path=parent_path,
         parent_data=parent_data,
         expected_schema=expected_schema,
+        dynamic_query_params=dynamic_query_params,
     )
 
-    if "error" not in new_data:
+    if not (isinstance(new_data, dict) and new_data.get("error")):
         new_data = _normalize_ai_payload_for_path(full_path, new_data)
 
-    if "error" not in new_data:
-        is_valid, mismatch_details = database.validate_payload_against_existing_schema(full_path, new_data)
+    if not (isinstance(new_data, dict) and new_data.get("error")):
+        is_valid, mismatch_details = database.validate_payload_against_existing_schema(
+            full_path,
+            new_data,
+            allow_missing_id=_is_collection_path(full_path),
+        )
         if not is_valid:
             duration = time.time() - start_time
             return _schema_validation_error_response(mismatch_details, duration)
     
-    if "error" not in new_data:
+    if not (isinstance(new_data, dict) and new_data.get("error")):
         new_data = database.save_structured_resource(full_path, new_data)
     
     duration = time.time() - start_time  # AI time + any DB save time in second
     print(f"AI GENERAATOR: Valmis {duration:.2f} sekundiga.")
     
+    if isinstance(new_data, dict) and new_data.get("error"):
+        status = _status_from_error_payload(new_data, default_status=400)
+        response = jsonify(new_data)
+        response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
+        return response, status
+
     response = jsonify(new_data)
     response.headers['X-Response-Time-Seconds'] = f"{duration:.2f}"
     return response, 200
@@ -764,9 +1208,9 @@ def unsupported_method(subpath):
         "message": f"HTTP method not supported for this endpoint.",
         "status": 405,
         "path": full_path,
-        "allowed_methods": ["GET", "POST", "PUT", "DELETE"],
+        "allowed_methods": ["GET", "POST", "PATCH", "DELETE"],
     }), 405
 
 if __name__ == '__main__':
     # Start the Flask app
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5000)

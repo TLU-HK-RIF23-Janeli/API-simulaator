@@ -27,11 +27,9 @@ def _table_for_path(path):
     resource = _resource_segment_for_path(path)
     return _sanitize_identifier(resource)
 
-
 def _data_columns_for_table(cursor, table_name):
-    system_columns = {"row_id", "source_path", "created_at"}
+    system_columns = {"row_id", "source_path"}
     return [col for col in _table_columns(cursor, table_name) if col not in system_columns]
-
 
 def get_existing_schema_for_path(path):
     """
@@ -48,6 +46,44 @@ def get_existing_schema_for_path(path):
     finally:
         conn.close()
 
+def normalize_schema_columns(columns):
+    """
+    Normalizes a raw list of column names to safe SQLite identifiers.
+    Returns unique columns while preserving input order.
+    """
+    if not columns:
+        return []
+
+    normalized = []
+    seen = set()
+    for column in columns:
+        if not isinstance(column, str):
+            continue
+        cleaned = _sanitize_identifier(column)
+        if cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized.append(cleaned)
+
+    return normalized
+
+def set_expected_schema_for_path(path, columns):
+    """
+    Persists expected schema columns for a resource path's table, even when
+    no rows exist yet. Returns resulting data columns for the table.
+    """
+    table_name = _table_for_path(path)
+    normalized_columns = normalize_schema_columns(columns)
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        _ensure_dynamic_table(cursor, table_name)
+        _ensure_columns(cursor, table_name, normalized_columns)
+        conn.commit()
+        return _data_columns_for_table(cursor, table_name)
+    finally:
+        conn.close()
 
 def validate_payload_against_existing_schema(path, data, allow_missing_id=False):
     """
@@ -105,18 +141,6 @@ def validate_payload_against_existing_schema(path, data, allow_missing_id=False)
 
     return True, None
 
-def _upsert_cached_payload(cursor, path, data):
-    payload = json.dumps(data, ensure_ascii=False)
-    cursor.execute(
-        """
-        INSERT INTO cached_responses (path, payload, updated_at)
-        VALUES (?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(path) DO UPDATE SET
-            payload = excluded.payload,
-            updated_at = CURRENT_TIMESTAMP
-        """,
-        (path, payload),
-    )
 
 def _extract_records(data, resource_segment=None):
     """
@@ -269,7 +293,6 @@ def _parent_pairs_for_path(path):
             index += 1
 
     return parent_pairs
-
 
 def _blacklisted_numeric_ids(cursor, table_name):
     """Returns numeric IDs that are blacklisted for a given resource table."""
@@ -514,6 +537,132 @@ def init_db():
     conn.close()
     print("Simple cache database initialized.")
 
+
+def _is_int_like(value):
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    if isinstance(value, str) and value.isdigit():
+        return True
+    return False
+
+
+def _infer_field_type(field_name, samples):
+    if field_name == "id" or field_name.endswith("_id"):
+        return "integer"
+
+    non_null = [value for value in samples if value is not None]
+    if not non_null:
+        return "unknown"
+
+    if all(_is_int_like(value) for value in non_null):
+        return "integer"
+
+    if all(isinstance(value, bool) for value in non_null):
+        return "boolean"
+
+    if all(isinstance(value, (dict, list)) for value in non_null):
+        return "object_or_array"
+
+    return "string"
+
+
+def _list_dynamic_tables(cursor):
+    cursor.execute(
+        """
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name NOT IN ('cached_responses', 'blacklist', 'sqlite_sequence')
+        ORDER BY name
+        """
+    )
+    return [row[0] for row in cursor.fetchall()]
+
+
+def get_documentation_state_snapshot():
+    """
+    Returns a read-only snapshot of current dynamic resources and blacklist
+    entries for documentation rendering.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        resources = []
+        for table_name in _list_dynamic_tables(cursor):
+            columns = _table_columns(cursor, table_name)
+            data_columns = [
+                column
+                for column in columns
+                if column not in {"row_id", "source_path"}
+            ]
+
+            cursor.execute(f'SELECT COUNT(*) FROM "{table_name}"')
+            row_count = cursor.fetchone()[0]
+
+            sample_items = []
+            source_paths = []
+            if "source_path" in columns:
+                cursor.execute(
+                    f'SELECT * FROM "{table_name}" ORDER BY row_id DESC LIMIT 3'
+                )
+                for row in cursor.fetchall():
+                    item = _row_to_dict(columns, row)
+                    sample_items.append({
+                        key: value
+                        for key, value in item.items()
+                        if key not in {"row_id", "source_path"}
+                    })
+
+                cursor.execute(
+                    f'SELECT DISTINCT source_path FROM "{table_name}" WHERE source_path IS NOT NULL ORDER BY source_path LIMIT 10'
+                )
+                source_paths = [row[0] for row in cursor.fetchall()]
+
+            fields = []
+            for field_name in sorted(data_columns, key=lambda name: (name != "id", name)):
+                samples = [item.get(field_name) for item in sample_items]
+                fields.append(
+                    {
+                        "name": field_name,
+                        "inferred_type": _infer_field_type(field_name, samples),
+                        "sample_values": [value for value in samples if value is not None][:3],
+                    }
+                )
+
+            resources.append(
+                {
+                    "resource": table_name,
+                    "table": table_name,
+                    "row_count": row_count,
+                    "fields": fields,
+                    "example_paths": source_paths,
+                    "sample_items": sample_items,
+                }
+            )
+
+        cursor.execute(
+            """
+            SELECT path, reason, blocked_at
+            FROM blacklist
+            ORDER BY blocked_at DESC, path ASC
+            """
+        )
+        blacklisted_paths = [
+            {"path": row[0], "reason": row[1], "blocked_at": row[2]}
+            for row in cursor.fetchall()
+        ]
+
+        return {
+            "resources": resources,
+            "blacklisted_paths": blacklisted_paths,
+            "resource_count": len(resources),
+            "blacklist_count": len(blacklisted_paths),
+        }
+    finally:
+        conn.close()
+
 def save_user_resource(path, data):
     """
     Saves a user-submitted resource (POST) to a collection.
@@ -575,15 +724,6 @@ def save_user_resource(path, data):
         values = [path] + [record.get(col) for col in ordered_cols[1:]]
         cursor.execute(insert_sql, values)
 
-    # Invalidate collection cache so next GET refreshes
-    cursor.execute("DELETE FROM cached_responses WHERE path = ?", (path,))
-
-    # Save alias for short path access (e.g. /comments/5 for /books/1/comments/5)
-    if "id" in data:
-        alias_path = f"/{resource_segment}/{data['id']}"
-        if alias_path != path:
-            _upsert_cached_payload(cursor, alias_path, data)
-
     conn.commit()
     conn.close()
     print("User resource saved.")
@@ -638,9 +778,6 @@ def update_user_resource(path, data):
         updated_row = dict(existing_row)
         updated_row.update(data)
 
-        for item_path in _item_paths_for_dynamic_row(path, updated_row):
-            _upsert_cached_payload(cursor, item_path, data)
-
         for collection_path in _collection_paths_for_dynamic_row(path, updated_row):
             cursor.execute("DELETE FROM cached_responses WHERE path = ?", (collection_path,))
 
@@ -653,15 +790,12 @@ def update_user_resource(path, data):
     finally:
         conn.close()
 
-
 def save_structured_resource(path, data):
     """Saves the full payload and also writes structured rows into a dynamic table."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
     data = _normalize_generated_data(cursor, path, data)
-
-    _upsert_cached_payload(cursor, path, data)
 
     # Additionally store structured records into a table based on the path root.
     table_name = _table_for_path(path)
@@ -677,36 +811,10 @@ def save_structured_resource(path, data):
         collection_path = "/" + "/".join(parts[:-1])
         cursor.execute("DELETE FROM cached_responses WHERE path = ?", (collection_path,))
 
-        alias_path = f"/{resource_segment}/{parts[-1]}"
-        if alias_path != path:
-            _upsert_cached_payload(cursor, alias_path, data)
-    else:
-        for record in records:
-            if "id" in record and isinstance(record["id"], (str, int)):
-                alias_path = f"/{resource_segment}/{record['id']}"
-                _upsert_cached_payload(cursor, alias_path, record)
-
     conn.commit()
     conn.close()
     print("Resource saved.")
     return data
-
-def get_resource_by_path(path):
-    """Returns parsed JSON payload for path, or None if missing/invalid."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT payload FROM cached_responses WHERE path = ?", (path,))
-    row = cursor.fetchone()
-    conn.close()
-
-    if not row:
-        return None
-
-    try:
-        return json.loads(row[0])
-    except (TypeError, json.JSONDecodeError):
-        return None
 
 def get_dynamic_resource_by_path(path):
     """
@@ -1095,7 +1203,6 @@ def _collect_qualified_paths_for_alias(cursor, path):
             qualified_paths.add(f"{source_path}/{item_id}")
 
     return qualified_paths
-
 
 def delete_resource_and_blacklist(path, reason="Deleted by API client"):
     """

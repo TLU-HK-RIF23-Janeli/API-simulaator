@@ -2,6 +2,7 @@ import time
 import os
 import json
 import math
+from pathlib import Path
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
@@ -20,25 +21,84 @@ else:
     )
     MODEL = "llama3"
 
-API_SPECIFICATION = os.getenv("API_SPECIFICATION", "You are a fast REST API mock server. Return only valid JSON.")
+user_api_spec = None
+SPEC_OVERRIDE_FILE = Path(__file__).resolve().parent / "api_spec_override.json"
 
-# Keep this block stable across requests so providers can cache the prefix.
-BASE_INSTRUCTIONS = (
-    f"{API_SPECIFICATION}\n"
+
+def _load_persisted_api_specification():
+    if not SPEC_OVERRIDE_FILE.exists():
+        return None
+
+    try:
+        payload = json.loads(SPEC_OVERRIDE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    specification = payload.get("api_specification") if isinstance(payload, dict) else None
+    if isinstance(specification, str) and specification.strip():
+        return specification.strip()
+
+    return None
+
+
+def save_api_specification(specification):
+    normalized = specification.strip()
+    SPEC_OVERRIDE_FILE.write_text(
+        json.dumps({"api_specification": normalized}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    global user_api_spec
+    user_api_spec = normalized
+    return user_api_spec
+
+
+def reset_api_specification():
+    global user_api_spec
+    user_api_spec = None
+
+    try:
+        SPEC_OVERRIDE_FILE.unlink()
+    except FileNotFoundError:
+        pass
+
+
+user_api_spec = _load_persisted_api_specification()
+
+
+def get_api_specification(user_api_spec_override=None):
+    if isinstance(user_api_spec_override, str) and user_api_spec_override.strip():
+        return user_api_spec_override.strip()
+    if isinstance(user_api_spec, str) and user_api_spec.strip():
+        return user_api_spec.strip()
+    return os.getenv("API_SPECIFICATION", "You are a fast REST API mock server. Return only valid JSON.")
+
+
+def _build_base_instructions():
+    current_specification = get_api_specification()
+    return (
+    f"Your API specification is: {current_specification}\n"
     "Rules:\n"
-    "1. If it is a list and no count is requested, provide exactly 5 items.\n"
-    "2. Keep metadata minimal.\n"
-    "3. Resource ID must always be a unique integer. "
+    "1. Check your API specification and check the suitability of the requested resource. If the request is not suitable for your API specification, give an error object with a clear message, example:\n"
+    "{\n"
+    "  \"error\": \"Bad Request\",\n"
+    "  \"message\": \"The path '/recipes' is not valid because recipes is not a logical endpoint in the API specification.\",\n"
+    "  \"status\": 400\n"
+    "}\n"
+    "1.1. (Blog) posts are not universally suitable for all API specifications. If your API specification is about (for example) student homework management, posts may not be a suitable resource to generate. In that case, give an error object as described in rule 1.\n"
+    "2. If it is a list and no count is requested, provide exactly 5 items.\n"
+    "3. Keep metadata minimal.\n"
+    "4. Resource ID must always be a unique integer. "
     "For example, if the path is /posts, generate posts with IDs 1, 2, 3, etc.\n"
-    "4. Do not include unrelated subresources by default.\n"
-    "5. Keep structure simple and realistic for the requested resource.\n"
-    "6. Check the path for spelling mistakes and typos. Give an error object if found, example:\n"
+    "5. Do not include unrelated subresources by default.\n"
+    "6. Keep structure simple and realistic for the requested resource.\n"
+    "7. Check the path for spelling mistakes and typos. Give an error object if found, example:\n"
     "{\n"
     "  \"error\": \"Not Found\",\n"
     "  \"message\": \"Path '/bycycles' not found. Did you mean '/bicycles'?\",\n"
     "  \"status\": 404\n"
     "}\n"
-    "7. If you are requested a specific resource that is not found yet, please generate a new resource with requested id, e.g. if the path is /books/999, generate a new book with \"id\": 999.\n"
+    "8. If you are requested a specific resource that is not found yet, please generate a new resource with requested id, e.g. if the path is /books/999, generate a new book with \"id\": 999.\n"
 )
 
 def _estimate_tokens(text):
@@ -65,7 +125,14 @@ def _extract_response_text(response):
                 return text_value
     return None
 
-async def get_ai_content(path, parent_path=None, parent_data=None, expected_schema=None, requested_count=None):
+async def get_ai_content(
+    path,
+    parent_path=None,
+    parent_data=None,
+    expected_schema=None,
+    requested_count=None,
+    dynamic_query_params=None,
+):
     """
     Requests JSON content from the AI based on the provided URL path.
     """
@@ -100,17 +167,29 @@ async def get_ai_content(path, parent_path=None, parent_data=None, expected_sche
             "Do not repeat items already present in the context.\n"
         )
 
+    query_block = ""
+    if dynamic_query_params:
+        query_block = (
+            "Dynamic query parameters for this request:\n"
+            f"{json.dumps(dynamic_query_params, ensure_ascii=False)}\n"
+            "Treat these as active filters/constraints when generating the response. "
+            "If the endpoint returns a list, generated records should satisfy these query constraints.\n"
+        )
+
     user_input = (
         f"Generate a realistic JSON response for path: {path}.\n"
         f"{context_block}"
         f"{schema_block}"
         f"{count_block}"
+        f"{query_block}"
     )
+
+    base_instructions = _build_base_instructions()
 
     try:
         response = await client.responses.create(
             model=MODEL,
-            instructions=BASE_INSTRUCTIONS,
+            instructions=base_instructions,
             input=user_input,
             text={"format": {"type": "json_object"}},
         )
@@ -128,7 +207,7 @@ async def get_ai_content(path, parent_path=None, parent_data=None, expected_sche
                 f" | total: {total_tokens}"
             )
         else:
-            estimated_prompt_tokens = _estimate_tokens(BASE_INSTRUCTIONS + user_input)
+            estimated_prompt_tokens = _estimate_tokens(base_instructions + user_input)
             print(
                 "[AI] Token usage | prompt: unavailable from provider"
                 f" | estimated_prompt: ~{estimated_prompt_tokens}"
@@ -138,6 +217,7 @@ async def get_ai_content(path, parent_path=None, parent_data=None, expected_sche
         if not content:
             raise ValueError("Responses API returned no text output")
 
+        print(user_input)
         print("[AI] Raw response text start")
         print(content)
         print("[AI] Raw response text end")

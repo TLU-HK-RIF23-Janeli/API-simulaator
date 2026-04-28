@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+    <html lang="et">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>TI API Simulator</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+        </head>
+        <body class="bg-zinc-950 text-zinc-100">
+            <div class="max-w-5xl mx-auto py-12 px-8">
+                <div class="flex items-center gap-4 mb-8">
+                    <i class="fa-solid fa-flask text-5xl text-emerald-400"></i>
+                    <div>
+                        <h1 class="text-4xl font-bold">TI API simulaator</h1>
+                        <p class="text-zinc-400">Universaalne tehisintellektipõhine REST API mock server</p>
+                    </div>
+                </div>
+
+                <div class="bg-zinc-900 rounded-3xl p-8 mb-10">
+                    <p class="text-lg leading-relaxed">
+                        See simulaator loob <strong>TI abil</strong> realistlikke andmeid iga võimaliku ressursi jaoks. 
+                        Esimene päring genereerib andmed, järgmised päringud tulevad andmebaasist, mis tagab stabiilse struktuuri.
+                        Lisaks on kasutajal võimalus päringuparameetriga kirjeldada soovitud andmestruktuuri.
+                    </p>
+                    <important class="block mt-4 text-sm text-yellow-400">
+                        Märkus: see tööriist töötab inglise keeles, seega API kirjeldus ja päringud peaksid olema inglise keeles, et TI saaks õigesti genereerida andmeid.
+                    </important>
+                </div>
+
+                <h2 class="text-2xl font-semibold mb-6 flex items-center gap-3">
+                <i class="fa-solid fa-circle-info"></i> Kuidas see töötab?
+                </h2>
+                <div class="grid grid-cols-2 gap-6 mb-12">
+                    <div class="bg-zinc-900 rounded-3xl p-6">
+                        <h3 class="font-semibold mb-2">1. API kirjeldus</h3>
+                        <p class="text-sm text-zinc-400 mb-4">Esmalt tuleb määrata API kirjeldus, mis defineerib, mis API-t rakendus simuleerib.</p>
+                        <h3 class="font-semibold mb-2">Kuidas?</h3>
+                        <p class="text-sm text-zinc-400">Saada POST päring lõpp-punktile <code>/specification</code>:</p>
+                        <code class="block bg-zinc-800 text-sm p-3 rounded-lg mb-2">{"specification":"You are an expert Mock API for Student Homework Management. Key domains: Users (Admin/Student), Assignments (Deadlines/Content), Tags (Academic Platforms), Comments, and Personal Task Statuses. Generate consistent, linked data suitable for testing a student-facing web application."}</code>
+                    </div>
+                    <div class="bg-zinc-900 rounded-3xl p-6">
+                        <h3 class="font-semibold mb-2">2. TI andmete generatsioon</h3>
+                        <p class="text-sm text-zinc-400 mb-4">Esimesel päringul loob tehisintellekti mudel (OpenAI GPT 4o-mini) 
+                            realistlikud andmed vastavalt API kirjeldusele, päringule ning soovitud andmestruktuurile, 
+                            juhul kui see on päringuparameetrites kirjas.</p>
+                        <h3 class="font-semibold mb-2">Märkus</h3>
+                        <p class="text-sm text-zinc-400">Ressursside soovitud väljad on mõistlik kohe koodis defineerida, et vältida andmete struktuuri muutusi.</p>
+                    </div>
+                    <div class="bg-zinc-900 rounded-3xl p-6">
+                        <h3 class="font-semibold mb-2">3. Stabiilne andmebaas</h3>
+                        <p class="text-sm text-zinc-400">Andmed salvestatakse SQLite andmebaasi. 
+                            Järgmised päringud samale lõpp-punktile tagastavad eelnevalt genereeritud andmeid.</p>
+                    </div>
+                    <div class="bg-zinc-900 rounded-3xl p-6">
+                        <h3 class="font-semibold mb-2">4. Andmeskeemi kontroll</h3>
+                        <p class="text-sm text-zinc-400"><code class="block bg-zinc-800 text-sm p-3 rounded-lg mb-2">?schema=title,deadline,status</code> Parameeter võimaldab tehisintellektile edastada täpse väljade nimekirja, 
+                            mis ressursil olema peaks. Nii on võimalik tagada andmestruktuuri stabiilsus ka tühja andmebaasi puhul.
+                        </p>
+                    </div>
+                </div>
+
+                <h2 class="text-2xl font-semibold mb-6">Peamised võimalused</h2>
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="bg-zinc-900 rounded-3xl p-7">
+                        <h3 class="font-medium text-emerald-400 mb-4">Toetatud HTTP meetodid</h3>
+                        <ul class="space-y-3 text-sm">
+                        <li><strong>GET</strong> — andmete lugemine (kogu kollektsioon või üks element)</li>
+                        <li><strong>POST</strong> — uue ressursi loomine</li>
+                        <li><strong>PATCH</strong> — olemasoleva ressursi muutmine</li>
+                        <li><strong>DELETE</strong> — ressursi kustutamine 
+                            (eemaldatakse andmebaasist ning lisatakse musta nimekirja)</li>
+                        </ul>
+                    </div>
+                    <div class="bg-zinc-900 rounded-3xl p-7">
+                        <h3 class="font-medium text-emerald-400 mb-4">Päringuparameetrid</h3>
+                        <ul class="space-y-3 text-sm">
+                        <li><code>?limit=10</code> — tagastab täpselt määratud arvu kirjeid</li>
+                        <li><code>?schema=title,deadline,status</code> — sunnib AI-d kasutama täpselt neid välju</li>
+                        <li><code>?&lt;any_other_param&gt;=value</code> — dünaamilised päringuparameetrid andmete sorteerimiseks ja filtreerimiseks</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="mt-12 bg-zinc-900 rounded-3xl p-8">
+                    <h3 class="font-semibold mb-4">Kasulikud lingid</h3>
+                    <div class="flex flex-wrap gap-4">
+                        <div class="flex flex-wrap gap-4">
+                            <a href="/tester" class="bg-violet-600 hover:bg-violet-700 px-6 py-3 rounded-2xl inline-flex items-center gap-2">
+                            <i class="fa-solid fa-flask"></i> Ava interaktiivne tester
+                            </a>
+                        </div>
+                        <div class="flex flex-wrap gap-4">
+                            <a href="/documentation" class="bg-green-700 hover:bg-green-600 px-6 py-3 rounded-2xl inline-flex items-center gap-2">
+                            <i class="fa-solid fa-flask"></i> API hetkeseisu dokumentatsioon
+                            </a>
+                        </div>
+                    </div>
+                    <important class="block mt-4 text-sm text-yellow-400">
+                        Testrakendus töötab API vaikeseadete korral.
+                    </important>
+                </div>
+
+                <p class="text-center text-zinc-500 mt-16 text-sm">
+                Janeli Arukask • Tallinna Ülikooli Haapsalu kolledž 2026
+                </p>
+            </div>
+        </div>
+    </body>
+    </html>
