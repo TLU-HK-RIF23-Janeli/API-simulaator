@@ -15,7 +15,7 @@ Rakendus toetab:
 
 ## Käivitamine Dockeri konteineris
 - Veendu, et sul on arvutisse installitud Docker ning et see töötab
-- ``` /code ``` kausta
+- Navigeeri ``` /code ``` kausta
 - Loo ``` .env ``` fail näidise põhjal
 - Veendu, et oled terminaliga ``` code ``` kaustas ning sisesta järgnevad käsud:
   - ```bash
