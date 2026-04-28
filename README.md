@@ -25,6 +25,7 @@ Rakendus toetab:
   - ```bash
     docker run -p 5000:5000 --env-file .env ai-simulaator
     ```
+- Rakendus töötab aadressil [localhost:5000](http://localhost:5000)
 
 ## Projektis kasutatud tehnoloogiad
 - Programmeerimiskeel Python
