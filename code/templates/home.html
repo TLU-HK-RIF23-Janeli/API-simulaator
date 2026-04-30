@@ -42,9 +42,9 @@
                 <div class="grid grid-cols-2 gap-6 mb-12">
                     <div class="bg-zinc-900 rounded-3xl p-6">
                         <h3 class="font-semibold mb-2">1. API kirjeldus</h3>
-                        <p class="text-sm text-zinc-400 mb-4">Esmalt tuleb määrata API kirjeldus, mis defineerib, mis API-t rakendus simuleerib.</p>
+                        <p class="text-sm text-zinc-400 mb-4">Esmalt tuleb määrata API kirjeldus, mis defineerib, mis API-t rakendus simuleerib. Esialgu on API-l allpool toodud kirjeldus.</p>
                         <h3 class="font-semibold mb-2">Kuidas?</h3>
-                        <p class="text-sm text-zinc-400">Saada POST päring lõpp-punktile <code>/specification</code> või tee seda dokumentatsioonis</p>
+                        <p class="text-sm text-zinc-400">Saada POST päring lõpp-punktile <code>/specification</code> või tee seda <a href="/documentation" class="text-blue-400 hover:underline">dokumentatsioonis</a>. Seal on kirjas ka API spetsifikatsiooni kirjutamise põhimõtted.</p>
                         <code class="block bg-zinc-800 text-sm p-3 rounded-lg mb-2">{"specification":"You are an expert Mock API for Student Homework Management. Key domains: Users (Admin/Student), Assignments (Deadlines/Content), Tags (Academic Platforms), Comments, and Personal Task Statuses. Generate consistent, linked data suitable for testing a student-facing web application."}</code>
                     </div>
                     <div class="bg-zinc-900 rounded-3xl p-6">
@@ -54,7 +54,11 @@
                             realistlikud andmed vastavalt API kirjeldusele, päringule ning soovitud andmestruktuurile, 
                             juhul kui see on päringuparameetrites kirjas.</p>
                         <h3 class="font-semibold mb-2">Märkus</h3>
-                        <p class="text-sm text-zinc-400">Ressursside soovitud väljad on mõistlik kohe koodis defineerida, et vältida andmete struktuuri muutusi.</p>
+                        <p class="text-sm text-zinc-400">Eesrakendust arendades on ressursside soovitud väljad mõistlik kohe koodis defineerida, et vältida andmete struktuuri muutusi.</p>
+                        <p class="text-sm text-zinc-400 mb-2"><code class="block bg-zinc-800 text-sm p-3 rounded-lg mb-2">?schema=title,deadline,status</code> Parameeter võimaldab tehisintellektile edastada täpse väljade nimekirja, 
+                            mis ressursil olema peaks. Nii on võimalik tagada andmestruktuuri stabiilsus ka tühja andmebaasi puhul.
+                        </p>
+                        <p class="text-sm text-zinc-600">NB! Kui päring läheb TI-le, võtab andmete genereerimine mõne sekundi aega.</p>
                     </div>
                     <div class="bg-zinc-900 rounded-3xl p-6">
                         <h3 class="font-semibold mb-2">3. Andmete salvestamine</h3>
@@ -62,14 +66,12 @@
                             Järgmised päringud samale lõpp-punktile tagastavad eelnevalt genereeritud andmeid,
                             tagamaks andmestruktuuri stabiilsust ning andmete järjepidevust.</p>
                         <h3 class="font-semibold mb-2">Märkus</h3>
-                        <p class="text-sm text-zinc-400">Oma simuleeritud API hetkeseisu näed dokumentatsioonist.
-                            Seal on olemas API spetsifikatsioon, loodud dünaamilised lõpp-punktid ning ka musta nimekirja kantud ressursid.
-                        </p>
+                        <p class="text-sm text-zinc-400">Kui tahad tühja andmebaasiga uuesti alustada, siis DELETE /delete-all teeb andmebaasi tühjaks, samuti on vastav nupp  olemas <a href="/documentation" class="text-blue-400 hover:underline">dokumentatsioonis</a>.</p>
                     </div>
                     <div class="bg-zinc-900 rounded-3xl p-6">
-                        <h3 class="font-semibold mb-2">4. Andmeskeemi kontroll</h3>
-                        <p class="text-sm text-zinc-400"><code class="block bg-zinc-800 text-sm p-3 rounded-lg mb-2">?schema=title,deadline,status</code> Parameeter võimaldab tehisintellektile edastada täpse väljade nimekirja, 
-                            mis ressursil olema peaks. Nii on võimalik tagada andmestruktuuri stabiilsus ka tühja andmebaasi puhul.
+                        <h3 class="font-semibold mb-2">4. API hetkeseisu näitamine</h3>
+                        <p class="text-sm text-zinc-400">Oma simuleeritud API hetkeseisu näed <a href="/documentation" class="text-blue-400 hover:underline">dokumentatsioonis</a>.
+                            Seal on olemas API spetsifikatsioon, loodud dünaamilised lõpp-punktid ning ka musta nimekirja kantud ressursid.
                         </p>
                     </div>
                 </div>
