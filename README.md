@@ -1,6 +1,4 @@
 # TI-põhine REST API simulaator
-<img width="1236" height="570" alt="image" src="https://github.com/user-attachments/assets/7e3ccd41-4407-43ff-9171-853ce7462abc" />
-
 
 See projekt on dünaamiline REST API simulaator, mis kasutab generatiivset tehisintellekti andmete genereerimiseks siis, kui vastavat ressurssi pole veel andmebaasis olemas.
 
@@ -15,6 +13,7 @@ Rakendus toetab:
   - dünaamilised parameetrid andmete sorteerimiseks ja filtreerimiseks
 
 ## Käivitamine Dockeri konteineris
+- Klooni enda arvutisse selle repositooriumi sisu
 - Veendu, et sul on arvutisse installitud Docker ning et see töötab
 - Navigeeri ``` /code ``` kausta
 - Loo ``` .env ``` fail näidise (.env.example) põhjal (päris OpenAI API võtmega)
@@ -27,14 +26,23 @@ Rakendus toetab:
     docker run -e PORT=5000 -p 5000:5000 --env-file .env ai-simulaator
     ```
 - Rakendus töötab aadressil [localhost:5000](http://localhost:5000)
+> Apple arvutite puhul võib port 5000 juba olla hõivatud, sellisel juhul saab rakenduse käivitada mõnel muul pordil.
 
-Kui tahad kasutada teist porti, sea nii konteineri sisemine port kui ka port-mapping samaks ning anna see läbi `PORT` keskkonnamuutuja.
+**NB!** Kui tahad kasutada teist porti, sea nii konteineri sisemine port kui ka välimine port samaks ning anna see rakendusele läbi `PORT` keskkonnamuutuja.
 
 Näide:
 
 ```bash
 docker run -e PORT=5001 -p 5001:5001 --env-file .env ai-simulaator
 ```
+
+## Mis edasi?
+- **Rakenduse avalehel** on kiire kasutusjuhend, tutvustus ning ligipääs kõigile teistele lehtedele
+- **Dokumentatsiooni** lehel on võimalik näha ning muuta oma API spetsifikatsiooni ning API hetkeseisu, millised dünaamilised lõpp-punktid on genereeritud, millised on kustutatud jms.
+- **API tööriist** on mõeldud API töö kiireks testimiseks. Seal on võimalik esitada API-le päringuid erinevate meetoditega ning näha kohe ka API vastuseid.
+- **Tahad kiirelt näha, mida API teeb?**
+  - Interaktiivse demorakenduse näol on võimalik näha eesrakenduse ja API koostööd oma silmaga.
+  - NB! Demorakendus töötab ainult API vaikeseadete korral
 
 ## Projektis kasutatud tehnoloogiad
 - Programmeerimiskeel Python
@@ -95,7 +103,6 @@ API_SPECIFICATION="You are an API for Student Homework Management. Key domains: 
 Tagastab API tutvustuse
 
 ## GET /documentation
-<img width="1319" height="626" alt="image" src="https://github.com/user-attachments/assets/8990b24b-d68f-4b3a-a898-01cbe3bcd876" />
 
 Tagastab API hetkeseisu (ressursid, spetsifikatsioon, ka kõik staatilised lõpp-punktid jms)
 
@@ -103,12 +110,10 @@ Tagastab API hetkeseisu (ressursid, spetsifikatsioon, ka kõik staatilised lõpp
 Tagastab ning võimaldab muuta API kirjeldust, mida rakendus simuleerib.
 
 ## GET /tester
-<img width="1868" height="789" alt="image" src="https://github.com/user-attachments/assets/01719871-2750-4aeb-8c83-4b368df7fa79" />
 
 Seal asub koolitööde haldamise näidisrakendus, millega API-t testida. NB! Koolitööde rakenduse töötamiseks taasta vaikeseaded ning tühjenda andmebaas.
 
 ## GET /api-tool
-<img width="1345" height="820" alt="image" src="https://github.com/user-attachments/assets/e5414757-8184-4400-abb8-5704d8ea9483" />
 
 Tööriist API-le päringute tegemise kiireks testiimiseks.
 
