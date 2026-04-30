@@ -57,11 +57,12 @@
           <input id="api-path" value="/assignments" placeholder="/resource/path" class="rounded-2xl bg-gray-800 px-4 py-3 md:col-span-4">
         </div>
 
-        <textarea id="api-body" rows="10" class="mb-3 w-full rounded-2xl bg-gray-800 p-4 font-mono text-sm" placeholder='{"title":"New item"}'></textarea>
+        <textarea id="api-body" rows="10" class="mb-3 w-full rounded-2xl bg-gray-800 p-4 font-mono text-sm" placeholder='{"id": 2, "title": "Science Project", "status": "In Progress"}'>
+        </textarea>
 
         <div class="mb-5 flex flex-wrap gap-3">
           <button onclick="runApiToolRequest()" class="rounded-2xl bg-violet-600 px-5 py-3 hover:bg-violet-700">Saada päring</button>
-          <button onclick="document.getElementById('api-body').value='';" class="rounded-2xl border border-gray-700 px-5 py-3 hover:bg-gray-800">Tühjenda body</button>
+          <button onclick="setDefaultApiBody()" class="rounded-2xl border border-gray-700 px-5 py-3 hover:bg-gray-800">Tühjenda body</button>
         </div>
 
         <div id="api-tool-status" class="mb-3 text-sm text-gray-400"></div>
@@ -220,6 +221,22 @@
     }
 
     toggleApiBodyInput();
+
+    // Set default formatted value in textarea
+    function setDefaultApiBody() {
+      const apiBody = document.getElementById("api-body");
+      apiBody.value = JSON.stringify({
+        "created_at": "2023-09-02T11:00:00Z",
+        "id": 2,
+        "title": "Science Project",
+        "deadline": "2023-09-15T23:59:00Z",
+        "status": "In Progress",
+        "description": "Group project on renewable energy sources."
+      }, null, 2);
+    }
+
+    // Initialize on page load
+    setDefaultApiBody();
   </script>
 </body>
 </html>
