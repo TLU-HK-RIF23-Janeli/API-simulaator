@@ -210,7 +210,7 @@ Kustutab kogu andmebaasi (tables + blacklist) ja initsialiseerib selle uuesti.
 
 Teised meetodid sellele endpointile tagastavad `error 405`.
 
-# Vastuse päised
+## Vastuse päised
 Rakendus lisab ajamõõtmise päiseid:
 - `X-Response-Time-MS` (kui vastus tuleb otse rakenduselt)
 - `X-Response-Time-Seconds` (kui vastus genereeritakse tehisintellekti poolt)
