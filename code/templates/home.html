@@ -9,19 +9,27 @@
         </head>
         <body class="bg-zinc-950 text-zinc-100">
             <div class="max-w-5xl mx-auto py-12 px-8">
-                <div class="flex items-center gap-4 mb-8">
+                <div class="flex items-center justify-between gap-4 mb-8">
                     <i class="fa-solid fa-flask text-5xl text-emerald-400"></i>
                     <div>
                         <h1 class="text-4xl font-bold">TI API simulaator</h1>
                         <p class="text-zinc-400">Universaalne tehisintellektipõhine REST API mock server</p>
                     </div>
+                    <div class="hidden sm:flex items-center gap-3">
+                        <a href="/tester" class="rounded-2xl border border-gray-700 px-4 py-2 text-sm text-gray-200 hover:bg-gray-800">Demorakendus</a>
+                        <a href="/api-tool" class="rounded-2xl border border-gray-700 px-4 py-2 text-sm text-gray-200 hover:bg-gray-800">API tööriist</a>
+                        <a href="/documentation" class="rounded-2xl bg-emerald-700 px-4 py-2 text-sm text-white hover:bg-emerald-600">API dokumentatsioon</a>
+                    </div>
                 </div>
 
                 <div class="bg-zinc-900 rounded-3xl p-8 mb-10">
-                    <p class="text-lg leading-relaxed">
-                        See simulaator loob <strong>TI abil</strong> realistlikke andmeid iga võimaliku ressursi jaoks. 
+                    <p class="text-lg leading-relaxed mb-2">
+                        See simulaator loob <strong>TI abil</strong> realistlikke andmeid iga võimaliku ressursi jaoks ning simuleerib REST API-t.
                         Esimene päring genereerib andmed, järgmised päringud tulevad andmebaasist, mis tagab stabiilse struktuuri.
                         Lisaks on kasutajal võimalus päringuparameetriga kirjeldada soovitud andmestruktuuri.
+                    </p>
+                    <p class="text-lg leading-relaxed mb-2">
+                        Simuleeritud API toetab nii ressursside lugemist, loomist, muutmist kui ka kustutamist. Samuti on neid võimalik päringuparameetrite abil sorteerida.
                     </p>
                     <important class="block mt-4 text-sm text-yellow-400">
                         Märkus: see tööriist töötab inglise keeles, seega API kirjeldus ja päringud peaksid olema inglise keeles, et TI saaks õigesti genereerida andmeid.
@@ -34,28 +42,36 @@
                 <div class="grid grid-cols-2 gap-6 mb-12">
                     <div class="bg-zinc-900 rounded-3xl p-6">
                         <h3 class="font-semibold mb-2">1. API kirjeldus</h3>
-                        <p class="text-sm text-zinc-400 mb-4">Esmalt tuleb määrata API kirjeldus, mis defineerib, mis API-t rakendus simuleerib.</p>
+                        <p class="text-sm text-zinc-400 mb-4">Esmalt tuleb määrata API kirjeldus, mis defineerib, mis API-t rakendus simuleerib. Esialgu on API-l allpool toodud kirjeldus.</p>
                         <h3 class="font-semibold mb-2">Kuidas?</h3>
-                        <p class="text-sm text-zinc-400">Saada POST päring lõpp-punktile <code>/specification</code>:</p>
+                        <p class="text-sm text-zinc-400">Saada POST päring lõpp-punktile <code>/specification</code> või tee seda <a href="/documentation" class="text-blue-400 hover:underline">dokumentatsioonis</a>. Seal on kirjas ka API spetsifikatsiooni kirjutamise põhimõtted.</p>
                         <code class="block bg-zinc-800 text-sm p-3 rounded-lg mb-2">{"specification":"You are an expert Mock API for Student Homework Management. Key domains: Users (Admin/Student), Assignments (Deadlines/Content), Tags (Academic Platforms), Comments, and Personal Task Statuses. Generate consistent, linked data suitable for testing a student-facing web application."}</code>
                     </div>
                     <div class="bg-zinc-900 rounded-3xl p-6">
-                        <h3 class="font-semibold mb-2">2. TI andmete generatsioon</h3>
-                        <p class="text-sm text-zinc-400 mb-4">Esimesel päringul loob tehisintellekti mudel (OpenAI GPT 4o-mini) 
+                        <h3 class="font-semibold mb-2">2. Andmete pärimine</h3>
+                        <p class="text-sm text-zinc-400 mb-4">Päri soovitud andmeid kas läbi API tööriista, brauseri või oma frontend rakenduse. 
+                            Esimesel päringul loob tehisintellekti mudel (OpenAI GPT 4o-mini) 
                             realistlikud andmed vastavalt API kirjeldusele, päringule ning soovitud andmestruktuurile, 
                             juhul kui see on päringuparameetrites kirjas.</p>
                         <h3 class="font-semibold mb-2">Märkus</h3>
-                        <p class="text-sm text-zinc-400">Ressursside soovitud väljad on mõistlik kohe koodis defineerida, et vältida andmete struktuuri muutusi.</p>
-                    </div>
-                    <div class="bg-zinc-900 rounded-3xl p-6">
-                        <h3 class="font-semibold mb-2">3. Stabiilne andmebaas</h3>
-                        <p class="text-sm text-zinc-400">Andmed salvestatakse SQLite andmebaasi. 
-                            Järgmised päringud samale lõpp-punktile tagastavad eelnevalt genereeritud andmeid.</p>
-                    </div>
-                    <div class="bg-zinc-900 rounded-3xl p-6">
-                        <h3 class="font-semibold mb-2">4. Andmeskeemi kontroll</h3>
-                        <p class="text-sm text-zinc-400"><code class="block bg-zinc-800 text-sm p-3 rounded-lg mb-2">?schema=title,deadline,status</code> Parameeter võimaldab tehisintellektile edastada täpse väljade nimekirja, 
+                        <p class="text-sm text-zinc-400">Eesrakendust arendades on ressursside soovitud väljad mõistlik kohe koodis defineerida, et vältida andmete struktuuri muutusi.</p>
+                        <p class="text-sm text-zinc-400 mb-2"><code class="block bg-zinc-800 text-sm p-3 rounded-lg mb-2">?schema=title,deadline,status</code> Parameeter võimaldab tehisintellektile edastada täpse väljade nimekirja, 
                             mis ressursil olema peaks. Nii on võimalik tagada andmestruktuuri stabiilsus ka tühja andmebaasi puhul.
+                        </p>
+                        <p class="text-sm text-zinc-600">NB! Kui päring läheb TI-le, võtab andmete genereerimine mõne sekundi aega.</p>
+                    </div>
+                    <div class="bg-zinc-900 rounded-3xl p-6">
+                        <h3 class="font-semibold mb-2">3. Andmete salvestamine</h3>
+                        <p class="text-sm text-zinc-400 mb-4">Esmakordse päringuga genereeritud andmed salvestatakse SQLite andmebaasi. 
+                            Järgmised päringud samale lõpp-punktile tagastavad eelnevalt genereeritud andmeid,
+                            tagamaks andmestruktuuri stabiilsust ning andmete järjepidevust.</p>
+                        <h3 class="font-semibold mb-2">Märkus</h3>
+                        <p class="text-sm text-zinc-400">Kui tahad tühja andmebaasiga uuesti alustada, siis DELETE /delete-all teeb andmebaasi tühjaks, samuti on vastav nupp  olemas <a href="/documentation" class="text-blue-400 hover:underline">dokumentatsioonis</a>.</p>
+                    </div>
+                    <div class="bg-zinc-900 rounded-3xl p-6">
+                        <h3 class="font-semibold mb-2">4. API hetkeseisu näitamine</h3>
+                        <p class="text-sm text-zinc-400">Oma simuleeritud API hetkeseisu näed <a href="/documentation" class="text-blue-400 hover:underline">dokumentatsioonis</a>.
+                            Seal on olemas API spetsifikatsioon, loodud dünaamilised lõpp-punktid ning ka musta nimekirja kantud ressursid.
                         </p>
                     </div>
                 </div>
@@ -83,27 +99,35 @@
                 </div>
 
                 <div class="mt-12 bg-zinc-900 rounded-3xl p-8">
-                    <h3 class="font-semibold mb-4">Kasulikud lingid</h3>
+                    <h3 class="font-semibold mb-4">Kuhu edasi?</h3>
                     <div class="flex flex-wrap gap-4">
                         <div class="flex flex-wrap gap-4">
                             <a href="/tester" class="bg-violet-600 hover:bg-violet-700 px-6 py-3 rounded-2xl inline-flex items-center gap-2">
-                            <i class="fa-solid fa-flask"></i> Ava interaktiivne tester
+                            <i class="fa-solid fa-flask"></i> Interaktiivne demorakendus
                             </a>
                         </div>
                         <div class="flex flex-wrap gap-4">
                             <a href="/documentation" class="bg-green-700 hover:bg-green-600 px-6 py-3 rounded-2xl inline-flex items-center gap-2">
-                            <i class="fa-solid fa-flask"></i> API hetkeseisu dokumentatsioon
+                            <i class="fa-solid fa-flask"></i> API dokumentatsioon
+                            </a>
+                        </div>
+                        <div class="flex flex-wrap gap-4">
+                            <a href="/api-tool" class="bg-orange-500 hover:bg-orange-700 px-6 py-3 rounded-2xl inline-flex items-center gap-2">
+                            <i class="fa-solid fa-flask"></i> API tööriist testimiseks
                             </a>
                         </div>
                     </div>
                     <important class="block mt-4 text-sm text-yellow-400">
-                        Testrakendus töötab API vaikeseadete korral.
+                        Demorakendus töötab API vaikeseadete ja tühjendatud andmebaasi korral.
                     </important>
                 </div>
 
                 <p class="text-center text-zinc-500 mt-16 text-sm">
                 Janeli Arukask • Tallinna Ülikooli Haapsalu kolledž 2026
                 </p>
+                <a href="https://github.com/TLU-HK-RIF23-Janeli/API-simulaator" class="text-center text-zinc-500 mt-2 text-sm flex items-center justify-center gap-2">
+                    <i class="fa-brands fa-github"></i> GitHubi koodirepositoorium
+                </a>
             </div>
         </div>
     </body>

@@ -35,8 +35,7 @@
         <a onclick="showView('tags')" class="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-gray-800 cursor-pointer">Tag'id</a>
         <a onclick="showView('comments')" class="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-gray-800 cursor-pointer">Kommentaarid</a>
       </nav>
-              <a onclick="showView('api')" class="flex items-center gap-3 px-4 py-3 mb-2 rounded-2xl bg-purple-700 hover:bg-purple-500 cursor-pointer">API tööriist</a>
-      <a href="http://localhost:5000/" class="flex items-center gap-3 px-4 py-3 rounded-2xl bg-green-700 hover:bg-green-500 cursor-pointer">API dokumentatsioon</a>
+      <!-- moved API actions to header -->
       <button onclick="resetDatabase()" class="mt-auto flex items-center justify-center gap-2 text-red-400 hover:text-red-300 py-3">
         <i class="fa-solid fa-trash"></i> Kustuta kogu andmebaas
       </button>
@@ -44,14 +43,23 @@
 
     <!-- Main content -->
     <div class="flex-1 overflow-auto">
-      <div class="bg-gray-900 border-b border-gray-800 px-8 py-5 flex justify-between sticky top-0 z-10">
-        <h2 id="page-title" class="text-2xl font-semibold">Avaleht</h2>
-        <div onclick="switchUser()" class="flex items-center gap-3 cursor-pointer">
-          <div class="text-right">
-            <p id="user-name" class="font-medium">Anna Tamm</p>
-            <p id="user-role" class="text-xs text-gray-400">Student • ID: 1</p>
+      <div class="bg-gray-900 border-b border-gray-800 px-8 py-5 flex items-center justify-between sticky top-0 z-10">
+        <div class="flex items-center gap-6">
+          <h2 id="page-title" class="text-2xl font-semibold">Avaleht</h2>
+          <div class="hidden sm:flex items-center gap-3">
+            <a href="/" class="rounded-2xl border border-gray-700 px-4 py-2 text-sm text-gray-200 hover:bg-gray-800">API avaleht</a>
+            <a href="/api-tool" class="rounded-2xl border border-gray-700 px-4 py-2 text-sm text-gray-200 hover:bg-gray-800">API tööriist</a>
+            <a href="/documentation" class="rounded-2xl bg-emerald-700 px-4 py-2 text-sm text-white hover:bg-emerald-600">API dokumentatsioon</a>
           </div>
-          <i class="fa-solid fa-user-circle text-3xl text-violet-400"></i>
+        </div>
+        <div class="flex items-center gap-3">
+          <div onclick="switchUser()" class="flex items-center gap-3 cursor-pointer">
+            <div class="text-right mr-2">
+              <p id="user-name" class="font-medium">Anna Tamm</p>
+              <p id="user-role" class="text-xs text-gray-400">Student • ID: 1</p>
+            </div>
+            <i class="fa-solid fa-user-circle text-3xl text-violet-400"></i>
+          </div>
         </div>
       </div>
 
@@ -61,7 +69,6 @@
       <div id="view-assignments" class="p-8 hidden"></div>
       <div id="view-tags" class="p-8 hidden"></div>
       <div id="view-comments" class="p-8 hidden"></div>
-      <div id="view-api" class="p-8 hidden"></div>
     </div>
   </div>
 
@@ -101,7 +108,7 @@
 
     let currentUser = { id: 1, name: "Anna Tamm", role: "student" };
     let currentAssignment = null;
-    const API = "http://localhost:5000";
+    const API = window.location.origin;
     let inlineMessageTimer = null;
 
     function escapeHtml(value) {
@@ -119,6 +126,32 @@
         return JSON.stringify(value, null, 2);
       } catch {
         return String(value);
+      }
+    }
+
+    async function apiRaw(method, path, body = null) {
+      showLoading();
+      try {
+        const normalizedMethod = String(method || "GET").toUpperCase();
+        const opts = {
+          method: normalizedMethod,
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json"
+          }
+        };
+        if (body !== null && body !== undefined) opts.body = JSON.stringify(body);
+        const res = await fetch(API + path, opts);
+        const text = await res.text();
+        let data = null;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch {
+          data = text;
+        }
+        return { ok: res.ok, status: res.status, data };
+      } finally {
+        hideLoading();
       }
     }
 
@@ -283,33 +316,6 @@
       if (active === "tags") await loadTags();
       if (active === "comments") await loadComments();
       if (active === "api") loadApiTool();
-    }
-
-    async function apiRaw(method, path, body = null) {
-      showLoading();
-      try {
-        const normalizedMethod = String(method || "GET").toUpperCase();
-        const opts = {
-          method: normalizedMethod,
-          cache: "no-store",
-          headers: {
-            "Content-Type": "application/json"
-          }
-        };
-        if (body !== null && body !== undefined) opts.body = JSON.stringify(body);
-        const res = await fetch(API + path, opts);
-        const text = await res.text();
-        let data = null;
-        try {
-          data = text ? JSON.parse(text) : null;
-        } catch {
-          data = text;
-        }
-        console.log(`%c${normalizedMethod} ${path} → ${res.status}`, "color:#a78bfa");
-        return { ok: res.ok, status: res.status, data };
-      } finally {
-        hideLoading();
-      }
     }
 
     async function api(method, path, body = null) {
@@ -589,117 +595,19 @@
       `).join('') || `<p class="text-sm text-gray-400 italic">Kommentaare ei leitud.</p>`;
     }
 
-    function toggleApiBodyInput() {
-      const method = document.getElementById("api-method")?.value || "GET";
-      const bodyInput = document.getElementById("api-body");
-      if (!bodyInput) return;
-
-      const shouldDisable = method === "GET" || method === "DELETE";
-      bodyInput.disabled = shouldDisable;
-      if (shouldDisable) {
-        bodyInput.classList.add("opacity-50");
-      } else {
-        bodyInput.classList.remove("opacity-50");
-      }
-    }
-
-    function loadApiTool() {
-      const container = document.getElementById("view-api");
-      container.innerHTML = `
-        <div class="bg-gray-900 rounded-3xl p-6">
-          <h3 class="text-xl font-semibold mb-4">API päringutööriist</h3>
-          <p class="text-sm text-gray-400 mb-6">Saad teha käsitsi GET, POST, PATCH ja DELETE päringuid ükskõik millisele ressursile.</p>
-          <div id="api-inline-message" class="hidden"></div>
-
-          <div class="grid md:grid-cols-5 gap-3 mb-3">
-            <select id="api-method" onchange="toggleApiBodyInput()" class="bg-gray-800 rounded-2xl px-4 py-3">
-              <option value="GET">GET</option>
-              <option value="POST">POST</option>
-              <option value="PATCH">PATCH</option>
-              <option value="DELETE">DELETE</option>
-            </select>
-            <input id="api-path" value="/assignments" placeholder="/resource/path" class="md:col-span-4 bg-gray-800 rounded-2xl px-4 py-3">
-          </div>
-
-          <textarea id="api-body" rows="8" class="w-full bg-gray-800 rounded-2xl p-4 font-mono text-sm mb-3" placeholder='{"title":"New item"}'></textarea>
-
-          <div class="flex flex-wrap gap-3 mb-5">
-            <button onclick="runApiToolRequest()" class="bg-violet-600 hover:bg-violet-700 px-5 py-3 rounded-2xl">Saada päring</button>
-            <button onclick="document.getElementById('api-body').value='';" class="border border-gray-700 px-5 py-3 rounded-2xl">Tühjenda body</button>
-          </div>
-
-          <div id="api-tool-status" class="text-sm text-gray-400 mb-3"></div>
-          <pre id="api-tool-response" class="bg-gray-950 border border-gray-800 rounded-2xl p-4 text-xs overflow-x-auto whitespace-pre-wrap">Vastus ilmub siia...</pre>
-        </div>
-      `;
-      toggleApiBodyInput();
-    }
-
-    async function runApiToolRequest() {
-      const method = document.getElementById("api-method").value;
-      const path = document.getElementById("api-path").value.trim();
-      const bodyText = document.getElementById("api-body").value.trim();
-      const statusEl = document.getElementById("api-tool-status");
-      const responseEl = document.getElementById("api-tool-response");
-
-      if (!path.startsWith("/")) {
-        statusEl.textContent = "Path peab algama / märgiga.";
-        statusEl.className = "text-sm text-red-400 mb-3";
-        return;
-      }
-
-      let payload = null;
-      if (method === "POST" || method === "PATCH") {
-        if (bodyText) {
-          try {
-            payload = JSON.parse(bodyText);
-          } catch (error) {
-            statusEl.textContent = `Body JSON on vigane: ${error.message}`;
-            statusEl.className = "text-sm text-red-400 mb-3";
-            return;
-          }
-        } else {
-          payload = {};
-        }
-      }
-
-      const result = await apiRaw(method, path, payload);
-      statusEl.textContent = `${method} ${path} -> ${result.status}`;
-      statusEl.className = `text-sm mb-3 ${result.ok ? "text-emerald-300" : "text-red-400"}`;
-      responseEl.textContent = prettyJson(result.data);
-
-      if (["POST", "PATCH", "DELETE"].includes(method)) {
-        if (result.ok) {
-          showApiInlineMessage(mutationSuccessMessage(method, path, result.status), "success");
-        } else {
-          const detail = typeof result.data === "object"
-            ? (result.data?.message || result.data?.error || "Paring ebaonnestus")
-            : "Paring ebaonnestus";
-          showApiInlineMessage(mutationErrorMessage(method, path, result.status, detail), "error");
-        }
-      } else {
-        showApiInlineMessage(`${method} valmis (${result.status}).`, result.ok ? "info" : "error");
-      }
-
-      if (result.ok && ["POST", "PATCH", "DELETE"].includes(method)) {
-        await refreshActiveView();
-      }
-    }
-
     function hideModal() { document.getElementById("modal").classList.add("hidden"); }
 
     function showView(view) {
       document.querySelectorAll('[id^="view-"]').forEach(v => v.classList.add("hidden"));
       document.getElementById(`view-${view}`).classList.remove("hidden");
       document.getElementById("page-title").textContent = {
-        dashboard: "Avaleht", assignments: "Minu ülesanded", tags: "Tag'id", comments: "Kommentaarid", api: "API tööriist"
+        dashboard: "Avaleht", assignments: "Minu ülesanded", tags: "Tag'id", comments: "Kommentaarid"
       }[view];
 
       if (view === "dashboard") loadDashboard();
       if (view === "assignments") loadAssignments();
       if (view === "tags") loadTags();
       if (view === "comments") loadComments();
-      if (view === "api") loadApiTool();
     }
 
     async function resetDatabase() {

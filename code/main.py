@@ -1,3 +1,4 @@
+import os
 import time
 import re
 import json
@@ -798,6 +799,10 @@ def get_specification():
 def tester():
     return render_template('tester2.html'), 200
 
+@app.route('/api-tool', methods=['GET'])
+def api_tool():
+    return render_template('api_tool.html'), 200
+
 @app.route('/delete-all', methods=['DELETE'])
 def delete_all():
     reset_db.clear_database()
@@ -1213,4 +1218,5 @@ def unsupported_method(subpath):
 
 if __name__ == '__main__':
     # Start the Flask app
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.getenv("PORT", "5000"))
+    app.run(debug=True, host='0.0.0.0', port=port)
