@@ -11,7 +11,7 @@ def test_10_unknown_items_generate_when_not_blacklisted(ordered_test_env):
 
     original_side_effect = ai_mock.side_effect
 
-    async def contract_side_effect(path, parent_path=None, parent_data=None, expected_schema=None):
+    async def contract_side_effect(path, parent_path=None, parent_data=None, expected_schema=None, requested_count=None, dynamic_query_params=None):
         if path == "/books/424242":
             return {
                 "id": 424242,
@@ -28,6 +28,8 @@ def test_10_unknown_items_generate_when_not_blacklisted(ordered_test_env):
             parent_path=parent_path,
             parent_data=parent_data,
             expected_schema=expected_schema,
+            requested_count=requested_count,
+            dynamic_query_params=dynamic_query_params
         )
 
     ai_mock.side_effect = contract_side_effect

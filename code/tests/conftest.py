@@ -26,12 +26,11 @@ def _build_test_env(db_path):
     main.database.init_db()
     main.app.config["TESTING"] = True
 
-    books_payload = {
-        "books": [
-            {"id": 1, "title": "Clean Architecture"},
-            {"id": 2, "title": "Domain-Driven Design"},
-        ]
-    }
+    books_payload =[
+        {"id": 1, "title": "Clean Architecture"},
+        {"id": 2, "title": "Domain-Driven Design"},
+    ]
+
 
     comments_payload = {
         "comments": [
@@ -58,7 +57,7 @@ def _build_test_env(db_path):
 
     books_999_attempts = {"count": 0}
 
-    async def fake_ai(path, parent_path=None, parent_data=None, expected_schema=None, requested_count=None):
+    async def fake_ai(path, parent_path=None, parent_data=None, expected_schema=None, requested_count=None, dynamic_query_params=None):
         if path == "/books":
             return books_payload
         if path == "/books/1/comments":

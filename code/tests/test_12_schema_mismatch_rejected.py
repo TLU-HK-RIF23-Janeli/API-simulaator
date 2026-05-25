@@ -11,7 +11,7 @@ def test_12_existing_schema_mismatch_returns_422_and_not_saved(ordered_test_env)
 
     original_side_effect = ai_mock.side_effect
 
-    async def schema_side_effect(path, parent_path=None, parent_data=None, expected_schema=None):
+    async def schema_side_effect(path, parent_path=None, parent_data=None, expected_schema=None, requested_count=None, dynamic_query_params=None):
         if path == "/planes/1":
             return {"id": 1, "name": "Plane One", "owner": "Alice"}
         if path == "/planes/2":
